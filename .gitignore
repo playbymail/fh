@@ -3,6 +3,7 @@
 *.exe
 *.gz
 *.out
+*.swp
 *.tar
 *.tgz
 *.test
@@ -11,6 +12,5 @@
 .archive/
 .idea/
 .vscode/
-
-# original Far Horizons C source code
-src/
+dist/
+far-horizons-source/

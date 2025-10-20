@@ -2,43 +2,22 @@
 
 We are going to create the game engine and CLI for Far Horizons using Go.
 
+Note that the far-horizons-source/ folder contains a clone of the github.com/playbymail/Far-Horizons repository.
+
 ## Objectives
 1. Convert the existing game engine (C source) to idiomatic Go.
 2. Use Cobra to implement the command line interface.
 3. Update the game I/O to read and write JSON data files instead of binary data files.
 4. Use the `github.com/maloquacious/semver` for semantic versioning.
 
-## Project Structure
-    fh/
-    ├── .gitattributes
-    ├── .gitignore
-    ├── AGENT.md
-    ├── dist/                # Build artifacts, one directory per deploy target
-    │   ├── linux/           # Linux (production artifacts)
-    │   └── local/           # Local (development artifacts)
-    ├── far-horizons-source/ # Original C source code
-    │   └── CMakeLists.txt   # Manifest for building original C source
-    ├── go.mod
-    ├── go.work              # Development may use local repositories
-    ├── internal/
-    │   ├── engine/
-    │   └── store/
-    ├── LICENSE
-    ├── main.go              # entry point for the fhx application
-    ├── Makefile
-    ├── testdata/            # Directory for testing larger problems
-    ├── tmp/                 # temporary directory for testing artifacts
-    ├── README.md
-    ├── TODO.md
-    └── ... (CI/CD configs, etc.)
 
 ## Commands
 * CLI command:
-  * Build CLI: `go build -o dist/local/fhx ./cmd/fhx`
-  * Version info: `dist/local/fhx version`
+  * Build CLI: `go build -o dist/local/fh .`
+  * Version info: `dist/local/fh version`
   * Tests: `go test ./...`
   * Format code: `go fmt ./...`
-  * Build for Linux: get version then `GOOS=linux GOARCH=amd64 go build -o dist/linux/fhx-${VERSION}`
+  * Build for Linux: get version then `GOOS=linux GOARCH=amd64 go build -o dist/linux/fh-${VERSION} .`
 
 ## Code Style
 - Standard Go formatting using `gofmt`

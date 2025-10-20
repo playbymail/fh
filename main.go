@@ -2,20 +2,23 @@
 package main
 
 import (
-	"fmt"
-	"github.com/maloquacious/semver"
-)
+	"os"
 
-var (
-	version = semver.Version{
-		Major:      0,
-		Minor:      1,
-		Patch:      0,
-		PreRelease: "alpha",
-		Build:      semver.Commit(),
-	}
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	fmt.Println(version.String())
+	var rootCmd = &cobra.Command{
+		Use:   "fh",
+		Short: "Far Horizons CLI",
+		Long:  `Far Horizons is a play-by-mail game engine rewritten in Go.`,
+	}
+
+	versionCmd.Flags().BoolP("verbose", "v", false, "Show detailed version information")
+	rootCmd.AddCommand(versionCmd)
+
+	err := rootCmd.Execute()
+	if err != nil {
+		os.Exit(1)
+	}
 }
