@@ -1,0 +1,16 @@
+*~
+*.db
+*.exe
+*.gz
+*.out
+*.tar
+*.tgz
+*.test
+*.zip
+
+.archive/
+.idea/
+.vscode/
+
+# original Far Horizons C source code
+src/
