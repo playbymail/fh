@@ -84,12 +84,40 @@ func main() {
 
 	var exportCmd = &cobra.Command{
 		Use:   "export",
-		Short: "Convert binary .dat to json or s-expression",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
+		Short: "Export game data to JSON for testing",
 	}
 	rootCmd.AddCommand(exportCmd)
+
+	var exportSnapshotCmd = &cobra.Command{
+		Use:   "snapshot",
+		Short: "Export a game snapshot to JSON",
+		Run: func(cmd *cobra.Command, args []string) {
+			storePath, _ := cmd.Flags().GetString("store")
+			gameID, _ := cmd.Flags().GetString("game")
+			turnNum, _ := cmd.Flags().GetInt("turn")
+			outputPath, _ := cmd.Flags().GetString("output")
+			_, _, _ = gameID, turnNum, outputPath
+
+			st, err := store.OpenSQLiteStore(storePath)
+			if err != nil {
+				fmt.Printf("failed to open store: %w", err)
+				os.Exit(1)
+			}
+			defer st.Close()
+
+			fmt.Printf("not implemented")
+			os.Exit(1)
+		},
+	}
+	exportSnapshotCmd.Flags().String("store", "", "Path to SQLite store")
+	exportSnapshotCmd.Flags().String("game", "", "Game ID")
+	exportSnapshotCmd.Flags().Int("turn", 0, "Turn number")
+	exportSnapshotCmd.Flags().String("output", "", "Output directory for JSON files")
+	exportSnapshotCmd.MarkFlagRequired("store")
+	exportSnapshotCmd.MarkFlagRequired("game")
+	exportSnapshotCmd.MarkFlagRequired("turn")
+	exportSnapshotCmd.MarkFlagRequired("output")
+	exportCmd.AddCommand(exportSnapshotCmd)
 
 	var finishCmd = &cobra.Command{
 		Use:   "finish",
@@ -120,18 +148,8 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, _ := cmd.Flags().GetString("path")
 			force, _ := cmd.Flags().GetBool("force")
-			storeType, _ := cmd.Flags().GetString("store-type")
 
-			var st store.Store
-			var err error
-			switch storeType {
-			case "json":
-				st, err = store.NewJSONStore(path, force)
-			case "sql":
-				st, err = store.NewSQLiteStore(path, force)
-			default:
-				return fmt.Errorf("invalid store type: %s", storeType)
-			}
+			st, err := store.NewSQLiteStore(path, force)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to initialize store: %v\n", err)
 				os.Exit(1)
@@ -144,7 +162,6 @@ func main() {
 	initGameCmd.Flags().String("path", "", "Path to the data store")
 	initGameCmd.Flags().String("game-id", "", "Game ID")
 	initGameCmd.Flags().Bool("force", false, "Force overwriting existing store")
-	initGameCmd.Flags().String("store-type", "json", "Type of store (json or sql)")
 	initGameCmd.MarkFlagRequired("path")
 	initGameCmd.MarkFlagRequired("game-id")
 	initCmd.AddCommand(initGameCmd)
