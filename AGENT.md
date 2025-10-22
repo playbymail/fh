@@ -2,7 +2,7 @@
 
 We are going to create the game engine and CLI for Far Horizons using Go.
 
-Note that the far-horizons-source/ folder contains a clone of the github.com/playbymail/Far-Horizons repository.
+Note that the ../Far-Horizons/ folder contains a clone of the github.com/playbymail/Far-Horizons repository.
 
 ## Objectives
 1. Convert the existing game engine (C source) to idiomatic Go.
