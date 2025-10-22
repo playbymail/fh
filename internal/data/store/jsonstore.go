@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,8 +32,50 @@ type JSONStore struct {
 	baseDir string
 }
 
+// OpenJSONStore opens an existing JSON file store.
+func OpenJSONStore(baseDir string) (*JSONStore, error) {
+	_, err := os.Stat(baseDir)
+	if os.IsNotExist(err) {
+		return nil, cerrs.ErrNotExist
+	}
+	if err != nil {
+		return nil, errors.Join(cerrs.ErrNotExist, err)
+	}
+
+	store := &JSONStore{baseDir: baseDir}
+
+	// Check schema version
+	version, err := store.GetSchemaVersion(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	expected := "v0.8.0"
+	if version != expected {
+		if version < expected {
+			// Upgrade
+			if err := store.UpgradeSchema(context.Background()); err != nil {
+				return nil, errors.Join(cerrs.ErrUpgradeFailed, err)
+			}
+		} else {
+			return nil, fmt.Errorf("version %s: %w", version, cerrs.ErrSchemaTooNew)
+		}
+	}
+
+	return store, nil
+}
+
 // NewJSONStore creates a new JSON file store.
-func NewJSONStore(baseDir string) (*JSONStore, error) {
+func NewJSONStore(baseDir string, force bool) (*JSONStore, error) {
+	_, err := os.Stat(baseDir)
+	exists := !os.IsNotExist(err)
+	if exists {
+		if !force {
+			return nil, cerrs.ErrExists
+		}
+		if err := os.RemoveAll(baseDir); err != nil {
+			return nil, errors.Join(cerrs.ErrExists, err)
+		}
+	}
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
 	}
@@ -204,6 +247,16 @@ func (s *JSONStore) SaveReport(ctx context.Context, gameID string, turnNum int, 
 func (s *JSONStore) GetReport(ctx context.Context, gameID string, turnNum int, actor string, mime string) (io.ReadCloser, error) {
 	path := filepath.Join(s.baseDir, "games", gameID, "reports", fmt.Sprintf("%d", turnNum), actor, mime)
 	return os.Open(path)
+}
+
+// GetSchemaVersion returns the current schema version.
+func (s *JSONStore) GetSchemaVersion(ctx context.Context) (string, error) {
+	return "v0.8.0", nil
+}
+
+// UpgradeSchema is a no-op for JSON store.
+func (s *JSONStore) UpgradeSchema(ctx context.Context) error {
+	return nil
 }
 
 // Close is a no-op for JSON store.

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
+	"os"
 
 	"github.com/playbymail/fh/internal/cerrs"
 	_ "modernc.org/sqlite"
@@ -15,16 +17,67 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
-// NewSQLiteStore creates a new SQLite store.
-func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+// OpenSQLiteStore opens an existing SQLite store.
+func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	_, err := os.Stat(dbPath)
+	if os.IsNotExist(err) {
+		return nil, cerrs.ErrNotExist
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
 
+	store := &SQLiteStore{db: db}
+
+	// Check schema version
+	version, err := store.GetSchemaVersion(context.Background())
+	if err != nil {
+		store.Close()
+		return nil, err
+	}
+	expected := "v0.8.0_initial"
+	if version != expected {
+		if version < expected {
+			// Upgrade
+			if err := store.UpgradeSchema(context.Background()); err != nil {
+				store.Close()
+				return nil, errors.Join(cerrs.ErrUpgradeFailed, err)
+			}
+		} else {
+			store.Close()
+			return nil, cerrs.ErrSchemaTooNew
+		}
+	}
+
+	return store, nil
+}
+
+// NewSQLiteStore creates a new SQLite store.
+func NewSQLiteStore(dbPath string, force bool) (*SQLiteStore, error) {
+	_, err := os.Stat(dbPath)
+	exists := !os.IsNotExist(err)
+	if exists {
+		if !force {
+			return nil, cerrs.ErrExists
+		}
+		if err := os.Remove(dbPath); err != nil {
+			return nil, errors.Join(cerrs.ErrExists, err)
+		}
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, errors.Join(cerrs.ErrNotOpened, err)
+	}
+
 	if err := setupSchema(db); err != nil {
 		db.Close()
-		return nil, err
+		return nil, errors.Join(cerrs.ErrSchemaSetupFailed, err)
 	}
 
 	return &SQLiteStore{db: db}, nil
@@ -33,6 +86,13 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 // setupSchema creates the database tables.
 func setupSchema(db *sql.DB) error {
 	schema := `
+-- migrations
+CREATE TABLE IF NOT EXISTS migrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL
+);
+
 -- games & turns
 CREATE TABLE IF NOT EXISTS game (
   id TEXT PRIMARY KEY,
@@ -87,6 +147,14 @@ CREATE TABLE IF NOT EXISTS report (
 );
 `
 	_, err := db.Exec(schema)
+	if err != nil {
+		return err
+	}
+
+	// Record the initial migration
+	_, err = db.Exec(`
+		INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('v0.8.0_initial', datetime('now'))
+	`)
 	return err
 }
 
@@ -311,6 +379,26 @@ func (r *ByteReader) Read(p []byte) (n int, err error) {
 
 // Close is a no-op.
 func (r *ByteReader) Close() error {
+	return nil
+}
+
+// GetSchemaVersion returns the current schema version.
+func (s *SQLiteStore) GetSchemaVersion(ctx context.Context) (string, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
+	`)
+	var version string
+	err := row.Scan(&version)
+	if err == sql.ErrNoRows {
+		return "", cerrs.ErrNoMigrations
+	}
+	return version, err
+}
+
+// UpgradeSchema applies pending schema upgrades.
+func (s *SQLiteStore) UpgradeSchema(ctx context.Context) error {
+	// For now, no upgrades needed beyond initial schema.
+	// Future: check current version and apply migrations in order.
 	return nil
 }
 

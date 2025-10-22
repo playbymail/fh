@@ -9,6 +9,10 @@ import (
 // Store is the interface for game data persistence.
 // Implementations can be JSON files, SQLite, etc.
 type Store interface {
+	// Schema management
+	GetSchemaVersion(ctx context.Context) (string, error)
+	UpgradeSchema(ctx context.Context) error
+
 	// Game management
 	CreateGame(ctx context.Context, id, name string) error
 	GetGame(ctx context.Context, id string) (*Game, error)

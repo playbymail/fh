@@ -2,9 +2,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/playbymail/fh/internal/cerrs"
+	"github.com/playbymail/fh/internal/data/store"
 	"github.com/spf13/cobra"
 )
 
@@ -106,6 +108,48 @@ func main() {
 		},
 	}
 	rootCmd.AddCommand(importCmd)
+
+	var initCmd = &cobra.Command{
+		Use:   "init",
+		Short: "Initialize commands",
+	}
+
+	var initGameCmd = &cobra.Command{
+		Use:   "game",
+		Short: "Initialize the data store for a new game",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, _ := cmd.Flags().GetString("path")
+			force, _ := cmd.Flags().GetBool("force")
+			storeType, _ := cmd.Flags().GetString("store-type")
+
+			var st store.Store
+			var err error
+			switch storeType {
+			case "json":
+				st, err = store.NewJSONStore(path, force)
+			case "sql":
+				st, err = store.NewSQLiteStore(path, force)
+			default:
+				return fmt.Errorf("invalid store type: %s", storeType)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to initialize store: %v\n", err)
+				os.Exit(1)
+			}
+			defer st.Close()
+
+			return nil
+		},
+	}
+	initGameCmd.Flags().String("path", "", "Path to the data store")
+	initGameCmd.Flags().String("game-id", "", "Game ID")
+	initGameCmd.Flags().Bool("force", false, "Force overwriting existing store")
+	initGameCmd.Flags().String("store-type", "json", "Type of store (json or sql)")
+	initGameCmd.MarkFlagRequired("path")
+	initGameCmd.MarkFlagRequired("game-id")
+	initCmd.AddCommand(initGameCmd)
+
+	rootCmd.AddCommand(initCmd)
 
 	var inspectCmd = &cobra.Command{
 		Use:   "inspect",
