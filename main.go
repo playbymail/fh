@@ -161,10 +161,71 @@ func main() {
 	var showCmd = &cobra.Command{
 		Use:   "show",
 		Short: "Show game information",
+	}
+
+	var showDNumSpeciesCmd = &cobra.Command{
+		Use:   "d-num-species",
+		Short: "Show maximum number of species",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
+	showCmd.AddCommand(showDNumSpeciesCmd)
+
+	var showNumPlanetsCmd = &cobra.Command{
+		Use:   "num-planets",
+		Short: "Show number of planets in cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showNumPlanetsCmd)
+
+	var showNumSpeciesCmd = &cobra.Command{
+		Use:   "num-species",
+		Short: "Show number of species in cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showNumSpeciesCmd)
+
+	var showNumStarsCmd = &cobra.Command{
+		Use:   "num-stars",
+		Short: "Show number of stars in cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showNumStarsCmd)
+
+	var showNumNaturalWormholesCmd = &cobra.Command{
+		Use:   "num-natural-wormholes",
+		Short: "Show number of natural wormholes in cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showNumNaturalWormholesCmd)
+
+	var showRadiusCmd = &cobra.Command{
+		Use:   "radius",
+		Short: "Show radius of cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showRadiusCmd)
+
+	var showTurnNumberCmd = &cobra.Command{
+		Use:   "turn-number",
+		Short: "Show current turn number",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showTurnNumberCmd)
+
 	rootCmd.AddCommand(showCmd)
 
 	var statsCmd = &cobra.Command{
