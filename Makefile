@@ -6,7 +6,7 @@
 #   make clean
 
 
-.PHONY: all build version test tidy clean help
+.PHONY: all build version test tidy clean golden-rng help
 
 all: build
 
@@ -23,6 +23,9 @@ test:
 tidy:
 	go mod tidy
 
+golden-rng: build
+	dist/local/fh update golden rng
+
 clean:
 	rm -rf dist/local dist/linux
 
@@ -32,4 +35,5 @@ help:
 	@echo "  version           Run version command"
 	@echo "  test              Run all tests"
 	@echo "  tidy              Run 'go mod tidy'"
+	@echo "  golden-rng        Rebuild golden RNG test files"
 	@echo "  clean             Remove $(DIST) directory"

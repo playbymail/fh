@@ -15,12 +15,12 @@ var updateCmd = &cobra.Command{
 	Short: "Update various things",
 }
 
-var goldenCmd = &cobra.Command{
+var updateGoldenCmd = &cobra.Command{
 	Use:   "golden",
 	Short: "Update golden test files",
 }
 
-var rngCmd = &cobra.Command{
+var updateGoldenRngCmd = &cobra.Command{
 	Use:   "rng",
 	Short: "Update RNG golden files",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -30,7 +30,9 @@ var rngCmd = &cobra.Command{
 		for _, n := range numbers {
 			b.WriteString(fmt.Sprintf("%d\n", n))
 		}
-		goldenFile := filepath.Join("internal", "engine", "rng", "testdata", "algorithmm.golden")
+
+		goldenRoot := filepath.Join("internal", "engine", "rng", "testdata")
+		goldenFile := filepath.Join(goldenRoot, "algorithmm.golden")
 		if err := os.WriteFile(goldenFile, b.Bytes(), 0644); err != nil {
 			fmt.Printf("failed to write %s: %v\n", goldenFile, err)
 			os.Exit(1)
@@ -42,7 +44,7 @@ var rngCmd = &cobra.Command{
 		for _, n := range numbersInt {
 			b.WriteString(fmt.Sprintf("%d\n", n))
 		}
-		goldenFile2 := filepath.Join("internal", "engine", "rng", "testdata", "algorithmm_range0to7.golden")
+		goldenFile2 := filepath.Join(goldenRoot, "algorithmm_range0to7.golden")
 		if err := os.WriteFile(goldenFile2, b.Bytes(), 0644); err != nil {
 			fmt.Printf("failed to write %s: %v\n", goldenFile2, err)
 			os.Exit(1)
@@ -51,5 +53,3 @@ var rngCmd = &cobra.Command{
 		fmt.Println("Updated RNG golden files")
 	},
 }
-
-
