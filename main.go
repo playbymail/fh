@@ -100,7 +100,7 @@ func main() {
 
 			st, err := store.OpenSQLiteStore(storePath)
 			if err != nil {
-				fmt.Printf("failed to open store: %w", err)
+				fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
 				os.Exit(1)
 			}
 			defer st.Close()

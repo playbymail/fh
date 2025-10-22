@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -32,23 +31,29 @@ func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, err
 	}
 
+	if err := enablePragmas(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	store := &SQLiteStore{db: db}
 
-	// Check schema version
+	// Check and upgrade schema if needed
+	expected := "0001_initial"
 	version, err := store.GetSchemaVersion(context.Background())
 	if err != nil {
 		store.Close()
 		return nil, err
 	}
-	expected := "v0.8.0_initial"
+
 	if version != expected {
-		if version < expected {
-			// Upgrade
-			if err := store.UpgradeSchema(context.Background()); err != nil {
-				store.Close()
-				return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
-			}
-		} else {
+		if err := store.UpgradeSchema(context.Background()); err != nil {
+			store.Close()
+			return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
+		}
+
+		version, err = store.GetSchemaVersion(context.Background())
+		if err != nil || version != expected {
 			store.Close()
 			return nil, cerrs.ErrSchemaTooNew
 		}
@@ -75,12 +80,33 @@ func NewSQLiteStore(dbPath string, force bool) (*SQLiteStore, error) {
 		return nil, errors.Join(cerrs.ErrNotOpened, err)
 	}
 
+	if err := enablePragmas(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	if err := setupSchema(db); err != nil {
 		db.Close()
 		return nil, errors.Join(cerrs.ErrSchemaSetupFailed, err)
 	}
 
 	return &SQLiteStore{db: db}, nil
+}
+
+// enablePragmas enables foreign keys and sets performance options.
+func enablePragmas(db *sql.DB) error {
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA busy_timeout = 5000",
+		"PRAGMA synchronous = NORMAL",
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // setupSchema creates the database tables.
@@ -106,8 +132,8 @@ CREATE TABLE IF NOT EXISTS turn (
   phase TEXT NOT NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT,
-  PRIMARY KEY (game_id, num, phase),
-  FOREIGN KEY (game_id) REFERENCES game(id)
+  PRIMARY KEY (game_id, num),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
 );
 
 -- world snapshots
@@ -118,7 +144,7 @@ CREATE TABLE IF NOT EXISTS entity (
   kind TEXT NOT NULL,
   data BLOB NOT NULL,
   PRIMARY KEY (game_id, turn_num, id),
-  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num)
+  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num) ON DELETE CASCADE
 );
 
 -- orders
@@ -132,7 +158,7 @@ CREATE TABLE IF NOT EXISTS orders (
   status TEXT NOT NULL,
   error TEXT,
   PRIMARY KEY (game_id, turn_num, actor, seq),
-  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num)
+  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num) ON DELETE CASCADE
 );
 
 -- reports
@@ -143,7 +169,7 @@ CREATE TABLE IF NOT EXISTS report (
   mime TEXT NOT NULL,
   body BLOB NOT NULL,
   PRIMARY KEY (game_id, turn_num, actor, mime),
-  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num)
+  FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num) ON DELETE CASCADE
 );
 `
 	_, err := db.Exec(schema)
@@ -153,7 +179,15 @@ CREATE TABLE IF NOT EXISTS report (
 
 	// Record the initial migration
 	_, err = db.Exec(`
-		INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('v0.8.0_initial', datetime('now'))
+		INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0001_initial', datetime('now'))
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Add indexes
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_turn_game_started ON turn(game_id, started_at);
 	`)
 	return err
 }
@@ -232,11 +266,7 @@ func (s *SQLiteStore) SaveSnapshot(ctx context.Context, gameID string, turnNum i
 	defer stmt.Close()
 
 	for _, entity := range entities {
-		data, err := json.Marshal(entity.Data) // assuming Data is already JSON, but marshal to bytes
-		if err != nil {
-			return err
-		}
-		_, err = stmt.ExecContext(ctx, gameID, turnNum, entity.ID, entity.Kind, data)
+		_, err = stmt.ExecContext(ctx, gameID, turnNum, entity.ID, entity.Kind, entity.Data)
 		if err != nil {
 			return err
 		}
@@ -384,21 +414,85 @@ func (r *ByteReader) Close() error {
 
 // GetSchemaVersion returns the current schema version.
 func (s *SQLiteStore) GetSchemaVersion(ctx context.Context) (string, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
-	`)
 	var version string
-	err := row.Scan(&version)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
+	`).Scan(&version)
+
 	if err == sql.ErrNoRows {
-		return "", cerrs.ErrNoMigrations
+		return "", nil
 	}
-	return version, err
+	if err != nil {
+		if isTableNotExistError(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return version, nil
+}
+
+// isTableNotExistError checks if the error is due to missing table.
+func isTableNotExistError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return contains(errMsg, "no such table") || contains(errMsg, "does not exist")
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// migration represents a database schema migration.
+type migration struct {
+	name string
+	up   func(*sql.DB) error
+}
+
+// migrations is the ordered list of all schema migrations.
+var migrations = []migration{
+	{
+		name: "0001_initial",
+		up:   setupSchema,
+	},
 }
 
 // UpgradeSchema applies pending schema upgrades.
 func (s *SQLiteStore) UpgradeSchema(ctx context.Context) error {
-	// For now, no upgrades needed beyond initial schema.
-	// Future: check current version and apply migrations in order.
+	currentVersion, err := s.GetSchemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Find which migrations need to be applied
+	startIndex := 0
+	if currentVersion != "" {
+		for i, m := range migrations {
+			if m.name == currentVersion {
+				startIndex = i + 1
+				break
+			}
+		}
+	}
+
+	// Apply pending migrations
+	for i := startIndex; i < len(migrations); i++ {
+		m := migrations[i]
+		if err := m.up(s.db); err != nil {
+			return errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
+		}
+	}
+
 	return nil
 }
 
