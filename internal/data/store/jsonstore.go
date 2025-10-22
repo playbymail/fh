@@ -54,7 +54,7 @@ func OpenJSONStore(baseDir string) (*JSONStore, error) {
 		if version < expected {
 			// Upgrade
 			if err := store.UpgradeSchema(context.Background()); err != nil {
-				return nil, errors.Join(cerrs.ErrUpgradeFailed, err)
+				return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
 			}
 		} else {
 			return nil, fmt.Errorf("version %s: %w", version, cerrs.ErrSchemaTooNew)

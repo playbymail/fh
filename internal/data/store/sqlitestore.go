@@ -46,7 +46,7 @@ func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
 			// Upgrade
 			if err := store.UpgradeSchema(context.Background()); err != nil {
 				store.Close()
-				return nil, errors.Join(cerrs.ErrUpgradeFailed, err)
+				return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
 			}
 		} else {
 			store.Close()
