@@ -8,8 +8,8 @@ import (
 
 // Engine coordinates game execution.
 type Engine struct {
-	store   store.Store
-	rng     rng.Factory
+	store store.Store
+	rng   rng.Factory
 	// TODO: Add planner, etc.
 }
 

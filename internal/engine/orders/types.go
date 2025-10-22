@@ -16,8 +16,8 @@ type Context struct {
 
 // Order represents a parsed player order.
 type Order interface {
-	Key() string           // stable key for seeding RNG
-	Actor() string         // which faction
+	Key() string   // stable key for seeding RNG
+	Actor() string // which faction
 	Validate(w ReadOnly) error
 	Dependencies(w ReadOnly) []string // IDs this order reads/writes
 	Execute(w ReadWrite, ctx Context) (Effect, error)

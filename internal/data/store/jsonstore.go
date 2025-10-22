@@ -15,17 +15,18 @@ import (
 // JSONStore implements Store using JSON files.
 // Data is stored in a directory structure:
 // baseDir/
-//   games/
-//     {gameID}/
-//       game.json
-//       turns/
-//         {turnNum}-{phase}.json
-//       snapshots/
-//         {turnNum}.json
-//       orders/
-//         {turnNum}/{actor}.json
-//       reports/
-//         {turnNum}/{actor}/{mime}
+//
+//	games/
+//	  {gameID}/
+//	    game.json
+//	    turns/
+//	      {turnNum}-{phase}.json
+//	    snapshots/
+//	      {turnNum}.json
+//	    orders/
+//	      {turnNum}/{actor}.json
+//	    reports/
+//	      {turnNum}/{actor}/{mime}
 type JSONStore struct {
 	baseDir string
 }
