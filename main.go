@@ -30,15 +30,54 @@ func main() {
 			return cerrs.ErrNotImplemented
 		},
 	}
+	combatCmd.Flags().BoolP("summary", "s", false, "Set summary mode for battle reports")
+	combatCmd.Flags().BoolP("prompt", "p", false, "Prompt GM before saving results")
+	combatCmd.Flags().BoolP("test", "t", false, "Enable test mode")
+	combatCmd.Flags().BoolP("verbose", "v", false, "Enable verbose mode")
+	combatCmd.Flags().Bool("combat", false, "Run normal combat (default)")
+	combatCmd.Flags().Bool("strike", false, "Run strike combat")
 	rootCmd.AddCommand(combatCmd)
 
 	var createCmd = &cobra.Command{
 		Use:   "create",
-		Short: "Create a new galaxy and home system templates",
+		Short: "Create new game elements",
+	}
+
+	var createGalaxyCmd = &cobra.Command{
+		Use:   "galaxy",
+		Short: "Create a new galaxy",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
+	createGalaxyCmd.Flags().Int("species", 0, "Number of species")
+	createGalaxyCmd.Flags().Int("stars", 0, "Number of stars")
+	createGalaxyCmd.Flags().Int("radius", 0, "Galactic radius in parsecs")
+	createGalaxyCmd.Flags().Bool("suggest-values", false, "Suggest appropriate values")
+	createGalaxyCmd.Flags().Bool("less-crowded", false, "Create a less crowded galaxy")
+	createCmd.AddCommand(createGalaxyCmd)
+
+	var createHomeSystemTemplatesCmd = &cobra.Command{
+		Use:   "home-system-templates",
+		Short: "Create home system templates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	createCmd.AddCommand(createHomeSystemTemplatesCmd)
+
+	var createSpeciesCmd = &cobra.Command{
+		Use:   "species",
+		Short: "Create species",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	createSpeciesCmd.Flags().String("config", "", "Configuration file")
+	createSpeciesCmd.Flags().Int("radius", 10, "Radius")
+	createSpeciesCmd.MarkFlagRequired("config")
+	createCmd.AddCommand(createSpeciesCmd)
+
 	rootCmd.AddCommand(createCmd)
 
 	var exportCmd = &cobra.Command{
