@@ -106,3 +106,37 @@ fh show stats
 
 Notes:
 1. Specify the `--path` parameter if you're not in the game's folder.
+
+## Create Galaxy
+
+The `fh create galaxy` command initializes a new game by populating the database tables for:
+
+* `galaxy`, which contains the parameters for the galaxy
+* `stars`, which contains data for all the systems in the galaxy
+* `planets`, which contains data for all the planets in the galaxy
+
+The command accepts the following options:
+
+* --species=integer, required, defines the number of species
+* --stars=integer, optional (defaults to a value based on the number of species)
+* --less-crowded, optional (defaults to false, not allowed with --stars)
+* --radius=integer, optional (defaults to a value based on the number of stars)
+* --suggest-values, optional (defaults to false)
+* --path=text, optional, the path to the game files (defaults to the current folder)
+
+The number of species is used to determine the number of stars in the galaxy.
+The number of stars is used to determine the radius.
+As a game master, you can specify the values, or let the program determine them.
+You can also use the `--suggest-values` flag to display suggested values based on the number of species.
+
+The `--less-crowded` flag increases the number of stars by about 50%.
+(It has no effect if you specify the number of stars yourself.)
+
+Increasing the number of stars tends to slow the pace of the game since it will take longer for species to encounter each other.
+
+### Notes
+You can't create multiple galaxies in the same game database.
+Any attempt to do so will fail immediately.
+
+If you want to rebuild a galaxy, you must reinitialize the game database.
+
