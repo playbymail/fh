@@ -11,20 +11,32 @@ Before using the commands in this manual, ensure the `fh` executable is in your 
 
 Alternatively, you can use the full path to `fh` in each command (e.g., `/path/to/fh/dist/local/fh`).
 
+## Create a new Game
+Creating a game creates a new database file with the default values for a game.
+It does not create a galaxy or add players.
+
+To create a new game, run the following command:
+
+```bash
+fh init game --id gamma
+```
+
+The command accepts the following flags:
+
+| flag  | meaning                           |          | default |
+|-------|-----------------------------------|----------|---------|
+| id    | identifier for the game           | required |         |
+| path  | path to create the data files in  | optional | .       |
+| force | overwrite any existing files      |          |         |
+
+If the command completes successfully, you will have an initialized database. 
+
 ## Creating a New Galaxy
 
 To create a new galaxy, follow these steps:
 
 ```bash
-# Create a new directory for the game
-mkdir gamma
-cd gamma
-
-# Copy initial configuration files (if available)
-# cp examples/noorders.txt .
-# cp examples/species.cfg .
-
-# Create the galaxy with options
+# Create a roomy galaxy with 18 potential homeworlds
 fh create galaxy --less-crowded --species=18
 
 # Show galaxy information
@@ -34,17 +46,21 @@ fh show galaxy
 fh create home-system-templates
 
 # Create species from configuration
-fh create species --config=species.cfg.json
+fh create species --config=species.json
 
 # Finish initial setup
-fh finish
+fh run finish
 
-# Generate initial reports
-fh report
+# Generate initial ("Turn 0") reports
+fh create turn-reports
 
 # Display statistics
-fh stats
+fh show stats
 ```
+
+Notes:
+1. You are not allowed to create multiple galaxies in the same game database.
+2. Specify the `--path` parameter if you're not in the game's folder.
 
 ## Running a Turn
 
@@ -52,38 +68,41 @@ To process a complete game turn:
 
 ```bash
 # Display current turn number
-fh turn
+fh show turn
 
 # Update locations and economic efficiency
-fh locations
+fh run locations
 
 # Process combat commands
-fh combat
+fh run combat
 
 # Execute pre-departure commands
-fh pre-departure
+fh run pre-departure
 
 # Process jump commands
-fh jump
+fh run jump
 
 # Execute production commands
-fh production
+fh run production
 
 # Execute post-arrival commands
-fh post-arrival
+fh run post-arrival
 
 # Update locations again
-fh locations
+fh run locations
 
 # Process combat strikes
-fh combat --strike
+fh run combat --strike
 
 # Finish turn processing
-fh finish
+fh run finish
 
 # Generate turn reports
-fh report
+fh create reports
 
 # Display updated statistics
-fh stats
+fh show stats
 ```
+
+Notes:
+1. Specify the `--path` parameter if you're not in the game's folder.

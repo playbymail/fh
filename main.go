@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/playbymail/fh/internal/cerrs"
@@ -17,33 +18,13 @@ func main() {
 		Long:  `Far Horizons is a play-by-mail game engine rewritten in Go.`,
 	}
 
-	updateGoldenCmd.AddCommand(updateGoldenRngCmd)
-	updateCmd.AddCommand(updateGoldenCmd)
-	rootCmd.AddCommand(updateCmd)
-
-	versionCmd.Flags().BoolP("verbose", "v", false, "Show detailed version information")
-	rootCmd.AddCommand(versionCmd)
-
 	// Command stubs for Far Horizons
-	var combatCmd = &cobra.Command{
-		Use:   "combat",
-		Short: "Run combat commands",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
-	}
-	combatCmd.Flags().BoolP("summary", "s", false, "Set summary mode for battle reports")
-	combatCmd.Flags().BoolP("prompt", "p", false, "Prompt GM before saving results")
-	combatCmd.Flags().BoolP("test", "t", false, "Enable test mode")
-	combatCmd.Flags().BoolP("verbose", "v", false, "Enable verbose mode")
-	combatCmd.Flags().Bool("combat", false, "Run normal combat (default)")
-	combatCmd.Flags().Bool("strike", false, "Run strike combat")
-	rootCmd.AddCommand(combatCmd)
 
 	var createCmd = &cobra.Command{
 		Use:   "create",
 		Short: "Create new game elements",
 	}
+	rootCmd.AddCommand(createCmd)
 
 	var createGalaxyCmd = &cobra.Command{
 		Use:   "galaxy",
@@ -68,6 +49,24 @@ func main() {
 	}
 	createCmd.AddCommand(createHomeSystemTemplatesCmd)
 
+	var createLocationsCmd = &cobra.Command{
+		Use:   "locations",
+		Short: "Create locations data file and update economic efficiency in planets data file",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	createCmd.AddCommand(createLocationsCmd)
+
+	var createReportsCmd = &cobra.Command{
+		Use:   "reports",
+		Short: "Create turn reports",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	createCmd.AddCommand(createReportsCmd)
+
 	var createSpeciesCmd = &cobra.Command{
 		Use:   "species",
 		Short: "Create species",
@@ -77,10 +76,10 @@ func main() {
 	}
 	createSpeciesCmd.Flags().String("config", "", "Configuration file")
 	createSpeciesCmd.Flags().Int("radius", 10, "Radius")
-	createSpeciesCmd.MarkFlagRequired("config")
+	if err := createSpeciesCmd.MarkFlagRequired("config"); err != nil {
+		log.Fatalf("create species --config: %v\n", err)
+	}
 	createCmd.AddCommand(createSpeciesCmd)
-
-	rootCmd.AddCommand(createCmd)
 
 	var exportCmd = &cobra.Command{
 		Use:   "export",
@@ -100,8 +99,7 @@ func main() {
 
 			st, err := store.OpenSQLiteStore(storePath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
-				os.Exit(1)
+				log.Fatalf("failed to open store: %v\n", err)
 			}
 			defer st.Close()
 
@@ -113,20 +111,19 @@ func main() {
 	exportSnapshotCmd.Flags().String("game", "", "Game ID")
 	exportSnapshotCmd.Flags().Int("turn", 0, "Turn number")
 	exportSnapshotCmd.Flags().String("output", "", "Output directory for JSON files")
-	exportSnapshotCmd.MarkFlagRequired("store")
-	exportSnapshotCmd.MarkFlagRequired("game")
-	exportSnapshotCmd.MarkFlagRequired("turn")
-	exportSnapshotCmd.MarkFlagRequired("output")
-	exportCmd.AddCommand(exportSnapshotCmd)
-
-	var finishCmd = &cobra.Command{
-		Use:   "finish",
-		Short: "Run end of turn logic",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
+	if err := exportSnapshotCmd.MarkFlagRequired("store"); err != nil {
+		log.Fatalf("config species --store: %v\n", err)
 	}
-	rootCmd.AddCommand(finishCmd)
+	if err := exportSnapshotCmd.MarkFlagRequired("game"); err != nil {
+		log.Fatalf("config species --game: %v\n", err)
+	}
+	if err := exportSnapshotCmd.MarkFlagRequired("turn"); err != nil {
+		log.Fatalf("config species --turn: %v\n", err)
+	}
+	if err := exportSnapshotCmd.MarkFlagRequired("output"); err != nil {
+		log.Fatalf("config species --output: %v\n", err)
+	}
+	exportCmd.AddCommand(exportSnapshotCmd)
 
 	var importCmd = &cobra.Command{
 		Use:   "import",
@@ -141,6 +138,7 @@ func main() {
 		Use:   "init",
 		Short: "Initialize commands",
 	}
+	rootCmd.AddCommand(initCmd)
 
 	var initGameCmd = &cobra.Command{
 		Use:   "game",
@@ -151,22 +149,20 @@ func main() {
 
 			st, err := store.NewSQLiteStore(path, force)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to initialize store: %v\n", err)
-				os.Exit(1)
+				log.Fatalf("failed to initialize store: %v\n", err)
 			}
 			defer st.Close()
 
 			return nil
 		},
 	}
-	initGameCmd.Flags().String("path", "", "Path to the data store")
-	initGameCmd.Flags().String("game-id", "", "Game ID")
+	initGameCmd.Flags().String("path", ".", "Path to the data store")
+	initGameCmd.Flags().String("id", "", "Game ID")
 	initGameCmd.Flags().Bool("force", false, "Force overwriting existing store")
-	initGameCmd.MarkFlagRequired("path")
-	initGameCmd.MarkFlagRequired("game-id")
+	if err := initGameCmd.MarkFlagRequired("id"); err != nil {
+		log.Fatalf("init game --id")
+	}
 	initCmd.AddCommand(initGameCmd)
-
-	rootCmd.AddCommand(initCmd)
 
 	var inspectCmd = &cobra.Command{
 		Use:   "inspect",
@@ -177,15 +173,6 @@ func main() {
 	}
 	rootCmd.AddCommand(inspectCmd)
 
-	var jumpCmd = &cobra.Command{
-		Use:   "jump",
-		Short: "Run jump commands",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
-	}
-	rootCmd.AddCommand(jumpCmd)
-
 	var listCmd = &cobra.Command{
 		Use:   "list",
 		Short: "List game elements",
@@ -195,50 +182,71 @@ func main() {
 	}
 	rootCmd.AddCommand(listCmd)
 
-	var locationsCmd = &cobra.Command{
-		Use:   "locations",
-		Short: "Create locations data file and update economic efficiency in planets data file",
+	var runCmd = &cobra.Command{
+		Use:   "run",
+		Short: "Run a game phase",
+	}
+	rootCmd.AddCommand(runCmd)
+
+	var runCombatCmd = &cobra.Command{
+		Use:   "combat",
+		Short: "Run combat phase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(locationsCmd)
+	runCombatCmd.Flags().BoolP("summary", "s", false, "Set summary mode for battle reports")
+	runCombatCmd.Flags().BoolP("prompt", "p", false, "Prompt GM before saving results")
+	runCombatCmd.Flags().BoolP("test", "t", false, "Enable test mode")
+	runCombatCmd.Flags().BoolP("verbose", "v", false, "Enable verbose mode")
+	runCombatCmd.Flags().Bool("combat", false, "Run normal combat (default)")
+	runCombatCmd.Flags().Bool("strike", false, "Run strike combat")
+	runCmd.AddCommand(runCombatCmd)
 
-	var postArrivalCmd = &cobra.Command{
+	var runFinishCmd = &cobra.Command{
+		Use:   "finish",
+		Short: "Run end of turn phase",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	runCmd.AddCommand(runFinishCmd)
+
+	var runJumpCmd = &cobra.Command{
+		Use:   "jump",
+		Short: "Run jump phase",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	runCmd.AddCommand(runJumpCmd)
+
+	var runPostArrivalCmd = &cobra.Command{
 		Use:   "post-arrival",
-		Short: "Run post-arrival commands",
+		Short: "Run post-arrival phase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(postArrivalCmd)
+	runCmd.AddCommand(runPostArrivalCmd)
 
-	var preDepartureCmd = &cobra.Command{
+	var runPreDepartureCmd = &cobra.Command{
 		Use:   "pre-departure",
-		Short: "Run pre-departure commands",
+		Short: "Run pre-departure phase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(preDepartureCmd)
+	runCmd.AddCommand(runPreDepartureCmd)
 
-	var productionCmd = &cobra.Command{
+	var runProductionCmd = &cobra.Command{
 		Use:   "production",
-		Short: "Run production commands",
+		Short: "Run production phase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(productionCmd)
-
-	var reportCmd = &cobra.Command{
-		Use:   "report",
-		Short: "Create end of turn reports",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
-	}
-	rootCmd.AddCommand(reportCmd)
+	runCmd.AddCommand(runProductionCmd)
 
 	var scanCmd = &cobra.Command{
 		Use:   "scan",
@@ -262,6 +270,7 @@ func main() {
 		Use:   "show",
 		Short: "Show game information",
 	}
+	rootCmd.AddCommand(showCmd)
 
 	var showDNumSpeciesCmd = &cobra.Command{
 		Use:   "d-num-species",
@@ -271,6 +280,15 @@ func main() {
 		},
 	}
 	showCmd.AddCommand(showDNumSpeciesCmd)
+
+	var showNumNaturalWormholesCmd = &cobra.Command{
+		Use:   "num-natural-wormholes",
+		Short: "Show number of natural wormholes in cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cerrs.ErrNotImplemented
+		},
+	}
+	showCmd.AddCommand(showNumNaturalWormholesCmd)
 
 	var showNumPlanetsCmd = &cobra.Command{
 		Use:   "num-planets",
@@ -299,15 +317,6 @@ func main() {
 	}
 	showCmd.AddCommand(showNumStarsCmd)
 
-	var showNumNaturalWormholesCmd = &cobra.Command{
-		Use:   "num-natural-wormholes",
-		Short: "Show number of natural wormholes in cluster",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
-	}
-	showCmd.AddCommand(showNumNaturalWormholesCmd)
-
 	var showRadiusCmd = &cobra.Command{
 		Use:   "radius",
 		Short: "Show radius of cluster",
@@ -317,34 +326,30 @@ func main() {
 	}
 	showCmd.AddCommand(showRadiusCmd)
 
-	var showTurnNumberCmd = &cobra.Command{
-		Use:   "turn-number",
-		Short: "Show current turn number",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cerrs.ErrNotImplemented
-		},
-	}
-	showCmd.AddCommand(showTurnNumberCmd)
-
-	rootCmd.AddCommand(showCmd)
-
-	var statsCmd = &cobra.Command{
+	var showStatsCmd = &cobra.Command{
 		Use:   "stats",
-		Short: "Display statistics",
+		Short: "Show statistics",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(statsCmd)
+	rootCmd.AddCommand(showStatsCmd)
 
-	var turnCmd = &cobra.Command{
+	var showTurnCmd = &cobra.Command{
 		Use:   "turn",
-		Short: "Display the current turn number",
+		Short: "Show the current turn number",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cerrs.ErrNotImplemented
 		},
 	}
-	rootCmd.AddCommand(turnCmd)
+	rootCmd.AddCommand(showTurnCmd)
+
+	updateGoldenCmd.AddCommand(updateGoldenRngCmd)
+	updateCmd.AddCommand(updateGoldenCmd)
+	rootCmd.AddCommand(updateCmd)
+
+	versionCmd.Flags().BoolP("verbose", "v", false, "Show detailed version information")
+	rootCmd.AddCommand(versionCmd)
 
 	err := rootCmd.Execute()
 	if err != nil {
