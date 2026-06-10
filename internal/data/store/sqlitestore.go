@@ -2,18 +2,36 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/playbymail/fh/internal/cerrs"
-	_ "modernc.org/sqlite"
+	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // SQLiteStore implements Store using SQLite database.
 type SQLiteStore struct {
-	db *sql.DB
+	pool *sqlitex.Pool
+}
+
+// prepareConn applies per-connection pragmas. WAL journal mode is set via the
+// OpenWAL flag; foreign keys, busy timeout, and synchronous mode are not
+// persisted and must be set on every connection.
+func prepareConn(conn *sqlite.Conn) error {
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON;",
+		"PRAGMA busy_timeout = 5000;",
+		"PRAGMA synchronous = NORMAL;",
+	}
+	for _, pragma := range pragmas {
+		if err := sqlitex.ExecuteTransient(conn, pragma, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // OpenSQLiteStore opens an existing SQLite store.
@@ -26,17 +44,15 @@ func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	pool, err := sqlitex.NewPool(dbPath, sqlitex.PoolOptions{
+		Flags:       sqlite.OpenReadWrite | sqlite.OpenWAL | sqlite.OpenURI,
+		PrepareConn: prepareConn,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := enablePragmas(db); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	store := &SQLiteStore{db: db}
+	store := &SQLiteStore{pool: pool}
 
 	// Check and upgrade schema if needed
 	expected := "0001_initial"
@@ -75,42 +91,31 @@ func NewSQLiteStore(dbPath string, force bool) (*SQLiteStore, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	pool, err := sqlitex.NewPool(dbPath, sqlitex.PoolOptions{
+		Flags:       sqlite.OpenReadWrite | sqlite.OpenCreate | sqlite.OpenWAL | sqlite.OpenURI,
+		PrepareConn: prepareConn,
+	})
 	if err != nil {
 		return nil, errors.Join(cerrs.ErrNotOpened, err)
 	}
 
-	if err := enablePragmas(db); err != nil {
-		db.Close()
-		return nil, err
+	conn, err := pool.Take(context.Background())
+	if err != nil {
+		pool.Close()
+		return nil, errors.Join(cerrs.ErrNotOpened, err)
 	}
-
-	if err := setupSchema(db); err != nil {
-		db.Close()
+	err = setupSchema(conn)
+	pool.Put(conn)
+	if err != nil {
+		pool.Close()
 		return nil, errors.Join(cerrs.ErrSchemaSetupFailed, err)
 	}
 
-	return &SQLiteStore{db: db}, nil
-}
-
-// enablePragmas enables foreign keys and sets performance options.
-func enablePragmas(db *sql.DB) error {
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-	}
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			return err
-		}
-	}
-	return nil
+	return &SQLiteStore{pool: pool}, nil
 }
 
 // setupSchema creates the database tables.
-func setupSchema(db *sql.DB) error {
+func setupSchema(conn *sqlite.Conn) error {
 	schema := `
 -- migrations
 CREATE TABLE IF NOT EXISTS migrations (
@@ -171,192 +176,233 @@ CREATE TABLE IF NOT EXISTS report (
   PRIMARY KEY (game_id, turn_num, actor, mime),
   FOREIGN KEY (game_id, turn_num) REFERENCES turn(game_id, num) ON DELETE CASCADE
 );
+
+-- indexes
+CREATE INDEX IF NOT EXISTS idx_turn_game_started ON turn(game_id, started_at);
 `
-	_, err := db.Exec(schema)
-	if err != nil {
+	if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
 		return err
 	}
 
 	// Record the initial migration
-	_, err = db.Exec(`
+	return sqlitex.Execute(conn, `
 		INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0001_initial', datetime('now'))
-	`)
-	if err != nil {
-		return err
-	}
-
-	// Add indexes
-	_, err = db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_turn_game_started ON turn(game_id, started_at);
-	`)
-	return err
+	`, nil)
 }
 
 // CreateGame inserts a new game.
 func (s *SQLiteStore) CreateGame(ctx context.Context, id, name string) error {
-	_, err := s.db.ExecContext(ctx, `
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.pool.Put(conn)
+
+	return sqlitex.Execute(conn, `
 		INSERT INTO game (id, name, created_at) VALUES (?, ?, datetime('now'))
-	`, id, name)
-	return err
+	`, &sqlitex.ExecOptions{Args: []any{id, name}})
 }
 
 // GetGame retrieves game metadata.
 func (s *SQLiteStore) GetGame(ctx context.Context, id string) (*Game, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, name, created_at FROM game WHERE id = ?
-	`, id)
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer s.pool.Put(conn)
 
-	var game Game
-	err := row.Scan(&game.ID, &game.Name, &game.CreatedAt)
-	if err == sql.ErrNoRows {
+	var game *Game
+	err = sqlitex.Execute(conn, `
+		SELECT id, name, created_at FROM game WHERE id = ?
+	`, &sqlitex.ExecOptions{
+		Args: []any{id},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			game = &Game{
+				ID:        stmt.ColumnText(0),
+				Name:      stmt.ColumnText(1),
+				CreatedAt: stmt.ColumnText(2),
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if game == nil {
 		return nil, cerrs.ErrNotImplemented // TODO: proper not found error
 	}
-	return &game, err
+	return game, nil
 }
 
 // CreateTurn inserts a new turn.
 func (s *SQLiteStore) CreateTurn(ctx context.Context, gameID string, turnNum int, phase string) error {
-	_, err := s.db.ExecContext(ctx, `
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.pool.Put(conn)
+
+	return sqlitex.Execute(conn, `
 		INSERT INTO turn (game_id, num, phase, started_at) VALUES (?, ?, ?, datetime('now'))
-	`, gameID, turnNum, phase)
-	return err
+	`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum, phase}})
 }
 
 // GetCurrentTurn finds the latest turn.
 func (s *SQLiteStore) GetCurrentTurn(ctx context.Context, gameID string) (*Turn, error) {
-	row := s.db.QueryRowContext(ctx, `
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer s.pool.Put(conn)
+
+	var turn *Turn
+	err = sqlitex.Execute(conn, `
 		SELECT game_id, num, phase, started_at, ended_at
 		FROM turn
 		WHERE game_id = ?
 		ORDER BY num DESC, started_at DESC
 		LIMIT 1
-	`, gameID)
-
-	var turn Turn
-	err := row.Scan(&turn.GameID, &turn.Num, &turn.Phase, &turn.StartedAt, &turn.EndedAt)
-	if err == sql.ErrNoRows {
+	`, &sqlitex.ExecOptions{
+		Args: []any{gameID},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			turn = &Turn{
+				GameID:    stmt.ColumnText(0),
+				Num:       stmt.ColumnInt(1),
+				Phase:     stmt.ColumnText(2),
+				StartedAt: stmt.ColumnText(3),
+				EndedAt:   stmt.ColumnText(4),
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if turn == nil {
 		return nil, cerrs.ErrNotImplemented
 	}
-	return &turn, err
+	return turn, nil
 }
 
 // SaveSnapshot saves entities.
-func (s *SQLiteStore) SaveSnapshot(ctx context.Context, gameID string, turnNum int, entities []Entity) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (s *SQLiteStore) SaveSnapshot(ctx context.Context, gameID string, turnNum int, entities []Entity) (err error) {
+	conn, err := s.pool.Take(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer s.pool.Put(conn)
+
+	defer sqlitex.Transaction(conn)(&err)
 
 	// Delete existing entities for this turn
-	_, err = tx.ExecContext(ctx, `
+	if err = sqlitex.Execute(conn, `
 		DELETE FROM entity WHERE game_id = ? AND turn_num = ?
-	`, gameID, turnNum)
-	if err != nil {
+	`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum}}); err != nil {
 		return err
 	}
 
 	// Insert new entities
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO entity (game_id, turn_num, id, kind, data) VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
 	for _, entity := range entities {
-		_, err = stmt.ExecContext(ctx, gameID, turnNum, entity.ID, entity.Kind, entity.Data)
-		if err != nil {
+		if err = sqlitex.Execute(conn, `
+			INSERT INTO entity (game_id, turn_num, id, kind, data) VALUES (?, ?, ?, ?, ?)
+		`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum, entity.ID, entity.Kind, entity.Data}}); err != nil {
 			return err
 		}
 	}
 
-	return tx.Commit()
+	return err
 }
 
 // LoadSnapshot loads entities.
 func (s *SQLiteStore) LoadSnapshot(ctx context.Context, gameID string, turnNum int) ([]Entity, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, kind, data FROM entity WHERE game_id = ? AND turn_num = ?
-	`, gameID, turnNum)
+	conn, err := s.pool.Take(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer s.pool.Put(conn)
 
 	var entities []Entity
-	for rows.Next() {
-		var entity Entity
-		var data []byte
-		err := rows.Scan(&entity.ID, &entity.Kind, &data)
-		if err != nil {
-			return nil, err
-		}
-		entity.Data = data
-		entities = append(entities, entity)
+	err = sqlitex.Execute(conn, `
+		SELECT id, kind, data FROM entity WHERE game_id = ? AND turn_num = ?
+	`, &sqlitex.ExecOptions{
+		Args: []any{gameID, turnNum},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			data := make([]byte, stmt.ColumnLen(2))
+			stmt.ColumnBytes(2, data)
+			entities = append(entities, Entity{
+				ID:   stmt.ColumnText(0),
+				Kind: stmt.ColumnText(1),
+				Data: data,
+			})
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
-	return entities, rows.Err()
+	return entities, nil
 }
 
 // SaveOrders saves orders.
-func (s *SQLiteStore) SaveOrders(ctx context.Context, gameID string, turnNum int, actor string, orders []Order) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (s *SQLiteStore) SaveOrders(ctx context.Context, gameID string, turnNum int, actor string, orders []Order) (err error) {
+	conn, err := s.pool.Take(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer s.pool.Put(conn)
+
+	defer sqlitex.Transaction(conn)(&err)
 
 	// Delete existing orders
-	_, err = tx.ExecContext(ctx, `
+	if err = sqlitex.Execute(conn, `
 		DELETE FROM orders WHERE game_id = ? AND turn_num = ? AND actor = ?
-	`, gameID, turnNum, actor)
-	if err != nil {
+	`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum, actor}}); err != nil {
 		return err
 	}
 
 	// Insert new orders
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO orders (game_id, turn_num, actor, seq, raw, normalized, status, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
 	for _, order := range orders {
-		_, err = stmt.ExecContext(ctx, gameID, turnNum, actor, order.Seq, order.Raw, order.Normalized, order.Status, order.Error)
-		if err != nil {
+		if err = sqlitex.Execute(conn, `
+			INSERT INTO orders (game_id, turn_num, actor, seq, raw, normalized, status, error)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum, actor, order.Seq, order.Raw, order.Normalized, order.Status, order.Error}}); err != nil {
 			return err
 		}
 	}
 
-	return tx.Commit()
+	return err
 }
 
 // GetOrders retrieves orders.
 func (s *SQLiteStore) GetOrders(ctx context.Context, gameID string, turnNum int, actor string) ([]Order, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT seq, raw, normalized, status, error FROM orders
-		WHERE game_id = ? AND turn_num = ? AND actor = ?
-		ORDER BY seq
-	`, gameID, turnNum, actor)
+	conn, err := s.pool.Take(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer s.pool.Put(conn)
 
 	var orders []Order
-	for rows.Next() {
-		var order Order
-		err := rows.Scan(&order.Seq, &order.Raw, &order.Normalized, &order.Status, &order.Error)
-		if err != nil {
-			return nil, err
-		}
-		orders = append(orders, order)
+	err = sqlitex.Execute(conn, `
+		SELECT seq, raw, normalized, status, error FROM orders
+		WHERE game_id = ? AND turn_num = ? AND actor = ?
+		ORDER BY seq
+	`, &sqlitex.ExecOptions{
+		Args: []any{gameID, turnNum, actor},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			orders = append(orders, Order{
+				Seq:        stmt.ColumnInt(0),
+				Raw:        stmt.ColumnText(1),
+				Normalized: stmt.ColumnText(2),
+				Status:     stmt.ColumnText(3),
+				Error:      stmt.ColumnText(4),
+			})
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
 	}
-	return orders, rows.Err()
+	return orders, nil
 }
 
 // SaveReport saves a report.
@@ -366,23 +412,43 @@ func (s *SQLiteStore) SaveReport(ctx context.Context, gameID string, turnNum int
 		return err
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.pool.Put(conn)
+
+	return sqlitex.Execute(conn, `
 		INSERT OR REPLACE INTO report (game_id, turn_num, actor, mime, body) VALUES (?, ?, ?, ?, ?)
-	`, gameID, turnNum, actor, mime, data)
-	return err
+	`, &sqlitex.ExecOptions{Args: []any{gameID, turnNum, actor, mime, data}})
 }
 
 // GetReport retrieves a report.
 func (s *SQLiteStore) GetReport(ctx context.Context, gameID string, turnNum int, actor string, mime string) (io.ReadCloser, error) {
-	var data []byte
-	err := s.db.QueryRowContext(ctx, `
-		SELECT body FROM report WHERE game_id = ? AND turn_num = ? AND actor = ? AND mime = ?
-	`, gameID, turnNum, actor, mime).Scan(&data)
+	conn, err := s.pool.Take(ctx)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, cerrs.ErrNotImplemented
-		}
 		return nil, err
+	}
+	defer s.pool.Put(conn)
+
+	var data []byte
+	found := false
+	err = sqlitex.Execute(conn, `
+		SELECT body FROM report WHERE game_id = ? AND turn_num = ? AND actor = ? AND mime = ?
+	`, &sqlitex.ExecOptions{
+		Args: []any{gameID, turnNum, actor, mime},
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			found = true
+			data = make([]byte, stmt.ColumnLen(0))
+			stmt.ColumnBytes(0, data)
+			return nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, cerrs.ErrNotImplemented
 	}
 
 	return io.NopCloser(NewByteReader(data)), nil
@@ -414,14 +480,21 @@ func (r *ByteReader) Close() error {
 
 // GetSchemaVersion returns the current schema version.
 func (s *SQLiteStore) GetSchemaVersion(ctx context.Context) (string, error) {
-	var version string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
-	`).Scan(&version)
-
-	if err == sql.ErrNoRows {
-		return "", nil
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return "", err
 	}
+	defer s.pool.Put(conn)
+
+	var version string
+	err = sqlitex.Execute(conn, `
+		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
+	`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *sqlite.Stmt) error {
+			version = stmt.ColumnText(0)
+			return nil
+		},
+	})
 	if err != nil {
 		if isTableNotExistError(err) {
 			return "", nil
@@ -437,26 +510,13 @@ func isTableNotExistError(err error) bool {
 		return false
 	}
 	errMsg := err.Error()
-	return contains(errMsg, "no such table") || contains(errMsg, "does not exist")
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errMsg, "no such table") || strings.Contains(errMsg, "does not exist")
 }
 
 // migration represents a database schema migration.
 type migration struct {
 	name string
-	up   func(*sql.DB) error
+	up   func(*sqlite.Conn) error
 }
 
 // migrations is the ordered list of all schema migrations.
@@ -485,10 +545,19 @@ func (s *SQLiteStore) UpgradeSchema(ctx context.Context) error {
 		}
 	}
 
+	if startIndex >= len(migrations) {
+		return nil
+	}
+
+	conn, err := s.pool.Take(ctx)
+	if err != nil {
+		return err
+	}
+	defer s.pool.Put(conn)
+
 	// Apply pending migrations
 	for i := startIndex; i < len(migrations); i++ {
-		m := migrations[i]
-		if err := m.up(s.db); err != nil {
+		if err := migrations[i].up(conn); err != nil {
 			return errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
 		}
 	}
@@ -498,5 +567,5 @@ func (s *SQLiteStore) UpgradeSchema(ctx context.Context) error {
 
 // Close closes the database.
 func (s *SQLiteStore) Close() error {
-	return s.db.Close()
+	return s.pool.Close()
 }

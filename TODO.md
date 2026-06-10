@@ -30,7 +30,7 @@ Each sprint follows TDD principles: write tests first, implement minimal code to
 ### Sprint 2: Data Stores (1 week)
 - [x] Design persistence interfaces for data stores
 - [x] Implement file-based JSON store as default
-- [x] Prepare foundation for SQLite store (modernc.org/sqlite)
+- [x] Prepare foundation for SQLite store (zombiezen.com/go/sqlite)
 
 ### Sprint 3: Core Types and RNG (1 week)
 - [x] Implement deterministic RNG with PCG/Xoroshiro

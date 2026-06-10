@@ -36,7 +36,7 @@ Parse → Normalize → Validate → Stage (build dependency DAG) → Execute (p
 ### Storage
 * A thin persistence interface so stores can be swapped later
 * JSON files by default
-* SQLite (modernc/sqlite for portability) for future releases
+* SQLite (zombiezen.com/go/sqlite, CGo-free, for portability) for future releases
 
 
 ## Core interfaces (sketches)
@@ -185,7 +185,7 @@ Migration path from the C code
 
 ## Milestones
 First milestones (2–3 weeks if focused)
-	1.	Scaffold repo + CI + lint + modernc.org/sqlite storage.
+	1.	Scaffold repo + CI + lint + zombiezen.com/go/sqlite storage.
 	2.	RNG factory + test vectors (determinism).
 	3.	Order parser v1 (subset) + validator.
 	4.	World model v0 (Stars, Wormholes, Fleets) + movement rules.

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func TestSaveLoadSnapshot(t *testing.T) {
@@ -87,7 +89,12 @@ func TestForeignKeyCascade(t *testing.T) {
 		t.Fatalf("failed to save snapshot: %v", err)
 	}
 
-	_, err = st.db.Exec("DELETE FROM game WHERE id = ?", "game1")
+	conn, err := st.pool.Take(ctx)
+	if err != nil {
+		t.Fatalf("failed to take conn: %v", err)
+	}
+	err = sqlitex.Execute(conn, "DELETE FROM game WHERE id = ?", &sqlitex.ExecOptions{Args: []any{"game1"}})
+	st.pool.Put(conn)
 	if err != nil {
 		t.Fatalf("failed to delete game: %v", err)
 	}

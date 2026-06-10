@@ -13,7 +13,7 @@
 ### 2. Data Storage Interfaces
 - [ ] Design persistence interfaces for data stores
 - [ ] Implement file-based JSON store as default
-- [ ] Prepare foundation for SQLite store (modernc.org/sqlite)
+- [ ] Prepare foundation for SQLite store (zombiezen.com/go/sqlite)
 
 ### 3. Core Engine Development
 - [ ] Define Go types and interfaces (world, orders, RNG, schedule, effects)

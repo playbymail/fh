@@ -13,7 +13,7 @@ Migrations are defined in `sqlitestore.go` as an ordered slice:
 ```go
 type migration struct {
     name string
-    up   func(*sql.DB) error
+    up   func(*sqlite.Conn) error
 }
 
 var migrations = []migration{
@@ -56,7 +56,7 @@ VALUES ('0002_example', datetime('now'))
 ### Step 1: Create Migration Function
 
 ```go
-func migration0002(db *sql.DB) error {
+func migration0002(conn *sqlite.Conn) error {
     schema := `
         CREATE TABLE IF NOT EXISTS colony (
             id TEXT PRIMARY KEY,
@@ -70,16 +70,16 @@ func migration0002(db *sql.DB) error {
         ON colony(planet_id);
     `
     
-    if _, err := db.Exec(schema); err != nil {
+    // ExecuteScript wraps multi-statement SQL in a SAVEPOINT transaction.
+    if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
         return err
     }
     
     // Record migration
-    _, err := db.Exec(`
+    return sqlitex.Execute(conn, `
         INSERT OR IGNORE INTO migrations (name, applied_at) 
         VALUES ('0002_add_colony_table', datetime('now'))
-    `)
-    return err
+    `, nil)
 }
 ```
 
@@ -128,19 +128,17 @@ REFERENCES turn(game_id, num) ON DELETE CASCADE
 
 ### Transactions
 
-Migration functions receive `*sql.DB`, not a transaction. If atomicity is required:
+Migration functions receive a `*sqlite.Conn`. `sqlitex.ExecuteScript` already
+wraps its script in a SAVEPOINT. For finer control over a sequence of
+statements, use `sqlitex.Transaction`:
 
 ```go
-func migration0003(db *sql.DB) error {
-    tx, err := db.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+func migration0003(conn *sqlite.Conn) (err error) {
+    defer sqlitex.Transaction(conn)(&err)
     
-    // Multiple operations...
+    // Multiple operations, each assigning to err and returning on failure...
     
-    return tx.Commit()
+    return err
 }
 ```
 
@@ -149,20 +147,19 @@ func migration0003(db *sql.DB) error {
 For data transformations, perform in the same migration:
 
 ```go
-func migration0004(db *sql.DB) error {
+func migration0004(conn *sqlite.Conn) error {
     // 1. Add new column
-    if _, err := db.Exec(`ALTER TABLE entity ADD COLUMN version INTEGER DEFAULT 1`); err != nil {
+    if err := sqlitex.Execute(conn, `ALTER TABLE entity ADD COLUMN version INTEGER DEFAULT 1`, nil); err != nil {
         return err
     }
     
     // 2. Migrate data
-    if _, err := db.Exec(`UPDATE entity SET version = 1 WHERE version IS NULL`); err != nil {
+    if err := sqlitex.Execute(conn, `UPDATE entity SET version = 1 WHERE version IS NULL`, nil); err != nil {
         return err
     }
     
     // 3. Record migration
-    _, err := db.Exec(`INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0004_add_entity_version', datetime('now'))`)
-    return err
+    return sqlitex.Execute(conn, `INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0004_add_entity_version', datetime('now'))`, nil)
 }
 ```
 
@@ -171,7 +168,7 @@ func migration0004(db *sql.DB) error {
 SQLite doesn't support `DROP COLUMN` directly. Use table recreation:
 
 ```go
-func migration0005(db *sql.DB) error {
+func migration0005(conn *sqlite.Conn) error {
     schema := `
         -- Create new table without dropped column
         CREATE TABLE entity_new (
@@ -191,27 +188,28 @@ func migration0005(db *sql.DB) error {
         ALTER TABLE entity_new RENAME TO entity;
     `
     
-    if _, err := db.Exec(schema); err != nil {
+    if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
         return err
     }
     
-    _, err := db.Exec(`INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0005_remove_entity_column', datetime('now'))`)
-    return err
+    return sqlitex.Execute(conn, `INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0005_remove_entity_column', datetime('now'))`, nil)
 }
 ```
 
 ## PRAGMAs
 
-Foreign key enforcement and performance settings are applied via `enablePragmas()`:
+Foreign key enforcement and performance settings are applied via the pool's
+`PrepareConn` hook (`prepareConn()`):
 
 ```go
 PRAGMA foreign_keys = ON        // Enable FK enforcement (required)
-PRAGMA journal_mode = WAL       // Write-Ahead Logging for concurrency
 PRAGMA busy_timeout = 5000      // Wait 5s for locks
 PRAGMA synchronous = NORMAL     // Balance safety/performance
 ```
 
-These are set per-connection, not per-migration.
+WAL journal mode is enabled via the `sqlite.OpenWAL` flag passed to the pool,
+not a PRAGMA. `PrepareConn` runs once per connection, so these are set
+per-connection, not per-migration.
 
 ## Testing Migrations
 
@@ -236,11 +234,22 @@ func TestMigration0002(t *testing.T) {
     defer st2.Close()
     
     // Verify schema changes
+    conn, err := st2.pool.Take(context.Background())
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer st2.pool.Put(conn)
+    
     var exists int
-    err = st2.db.QueryRow(`
+    err = sqlitex.Execute(conn, `
         SELECT 1 FROM sqlite_master 
         WHERE type='table' AND name='colony'
-    `).Scan(&exists)
+    `, &sqlitex.ExecOptions{
+        ResultFunc: func(stmt *sqlite.Stmt) error {
+            exists = stmt.ColumnInt(0)
+            return nil
+        },
+    })
     
     if err != nil || exists != 1 {
         t.Error("colony table not created")
@@ -323,7 +332,7 @@ For production, add checksum validation:
 type migration struct {
     name     string
     checksum string  // SHA256 of up function bytecode
-    up       func(*sql.DB) error
+    up       func(*sqlite.Conn) error
 }
 ```
 
@@ -334,8 +343,8 @@ Add rollback capability:
 ```go
 type migration struct {
     name string
-    up   func(*sql.DB) error
-    down func(*sql.DB) error  // Rollback
+    up   func(*sqlite.Conn) error
+    down func(*sqlite.Conn) error  // Rollback
 }
 ```
 
@@ -352,4 +361,5 @@ var migrationFS embed.FS
 
 - SQLite Foreign Keys: https://www.sqlite.org/foreignkeys.html
 - SQLite WAL Mode: https://www.sqlite.org/wal.html
-- modernc.org/sqlite driver: https://gitlab.com/cznic/sqlite
+- zombiezen.com/go/sqlite driver: https://github.com/zombiezen/go-sqlite
+- sqlitex helpers: https://pkg.go.dev/zombiezen.com/go/sqlite/sqlitex
