@@ -1,17 +1,68 @@
-# Amp Agent: Far Horizons (fh)
+# Agent Guide: Far Horizons (fh)
 
-We are going to create the game engine and CLI for Far Horizons using Go.
+We are porting the classic play-by-mail game Far Horizons from C to Go.
 
-Note that the ../Far-Horizons/ folder contains a clone of the github.com/playbymail/Far-Horizons repository.
+Note that `../Far-Horizons/` contains a clone of the github.com/playbymail/Far-Horizons
+repository — the authoritative C source. Always consult it when porting.
 
-## Objectives
-1. Convert the existing game engine (C source) to idiomatic Go.
-2. Use `github.com/peterbourgon/ff/v4` to implement the command line interface.
-3. Store game state in a SQLite datastore (replacing the original binary data files); use JSON for config input and test/export snapshots.
-4. Use the `github.com/maloquacious/semver` for semantic versioning.
+> The canonical, detailed guidance lives in **CLAUDE.md**. This file is the
+> short Amp-facing summary; CLAUDE.md and this file must agree.
 
-## Data Store
-The SQLite store lives in `internal/data/store` behind the `Store` interface.
+## Strategy: two phases, two binaries
+
+We are doing this in two phases, in order:
+
+1. **Byte-faithful C port first** (`internal/game`, run by `cmd/fhc`).
+   A direct, line-by-line translation of the C engine that reproduces the
+   original binary `.dat` files, s-expression `.txt` exports, logs, and reports
+   **byte-for-byte**. This is the reference implementation we trust.
+
+2. **Idiomatic Go second** (`internal/...` clean packages, run by `cmd/fh`).
+   A clean rewrite that stores game state in a SQLite datastore (ZombieZen)
+   instead of the original binary files, using JSON for config input and
+   test/export snapshots. This is built and validated *against* the
+   byte-faithful port — only start a subsystem here once its `fhc` counterpart
+   is correct.
+
+Do not blur the two. Work on the byte-faithful port until it is complete and
+validated; the idiomatic package consumes its verified behavior.
+
+### Binaries
+- `cmd/fhc` — the **C port** runner. `main` calls `game.CommandRunner(os.Args)`,
+  a direct port of the C `fh.c` argument dispatcher in `internal/game`.
+- `cmd/fh` — the **idiomatic Go** runner. Uses `peterbourgon/ff/v4` for the CLI
+  and `internal/data/store` (ZombieZen SQLite) for persistence. Many subcommands
+  are still stubs (`cerrs.ErrNotImplemented`).
+
+## The byte-faithful port (`internal/game`)
+
+- Translates the C engine file-for-file (e.g. `combat.c` → `combat1.go` +
+  `combat2.go`; `do.c`/`do_*.c` → `do1.go`/`do2.go`/`do3.go`; the C `*vars.c`
+  globals collapse into `vars.go`).
+- Keeps the original on-disk formats: binary `.dat` records (`marshal.go`,
+  `unmarshal.go`, and the `*io.go` codecs) and the s-expression text exports
+  (`*DataAsSExpr`). **These `*AsSExpr` writers are load-bearing** — the C engine
+  writes `galaxy.hs.txt`, `stars.hs.txt`, `planets.hs.txt`, `species%03d.txt`,
+  so the Go port must too. Do not remove them.
+- The `sexpr` debug command (the Lisp/s-expression *interpreter* from the C
+  `sexpr.c`) is intentionally **not ported** — it is a debugging tool, made
+  redundant by direct `.dat`/JSON comparison.
+- Tests mutate package-level globals and must **not** run in parallel; call
+  `ResetState()` first where needed.
+
+### Validating against C
+- `testdata/cref/generate.sh` builds and runs the C engine (seeded with
+  `FH_SEED`) to emit reference `.dat`/`.txt`/`.log` outputs under
+  `testdata/cref/`. The Go port must produce byte-identical results.
+- Existing golden tests cover the **setup** phase (`galaxy_create_test.go`,
+  `species_create_test.go`, `templates_create_test.go`) plus binary record-size
+  and round-trip checks (`io_roundtrip_test.go`). Extending coverage to the
+  **turn pipeline** (locations → combat → pre-departure → jump → production →
+  post-arrival → finish → report) is ongoing work.
+
+## The idiomatic data store (`internal/data/store`)
+
+The SQLite store lives behind the `Store` interface.
 
 - **Driver**: `zombiezen.com/go/sqlite` (CGo-free, builds with `CGO_ENABLED=0`).
   We deliberately do **not** use `database/sql`; `modernc.org/sqlite` remains
@@ -30,20 +81,17 @@ The SQLite store lives in `internal/data/store` behind the `Store` interface.
   tracked by `PRAGMA user_version`. Never edit or reorder a released migration —
   only append. See `internal/data/store/MIGRATIONS.md`.
 
-
 ## Commands
-* CLI command:
-  * Build CLI: `go build -o dist/local/fh .`
-  * Version info: `dist/local/fh version`
-  * Tests: `go test ./...`
-  * Format code: `go fmt ./...`
-  * Build for Linux: get version then `GOOS=linux GOARCH=amd64 go build -o dist/linux/fh-${VERSION} .`
+- Build C-port runner:    `go build -o dist/local/fhc ./cmd/fhc`
+- Build idiomatic runner: `go build -o dist/local/fh  ./cmd/fh`
+- Tests:        `go test ./...`
+- Format code:  `go fmt ./...`
+- Regenerate C reference data: `testdata/cref/generate.sh`
 
 ## Code Style
-- Standard Go formatting using `gofmt`
-- Imports organized by stdlib first, then external packages
-- Error handling: return errors to caller, log.Fatal only in main
-- Function comments use Go standard format `// FunctionName does X`
-- Variable naming follows camelCase
-- File structure follows standard Go package conventions
-- Type naming follows standard Go conventions (no special suffixes)
+- Standard Go formatting via `gofmt`; imports stdlib first, then external.
+- Error handling: return errors to the caller; `log.Fatal` only in `main`.
+- Function comments use `// FunctionName does X`.
+- camelCase variables; standard Go type naming (no special suffixes) — except
+  inside `internal/game`, where C struct/field names are kept verbatim (e.g.
+  `species_data_t`, `nampla_base`) to make the port auditable against the C.

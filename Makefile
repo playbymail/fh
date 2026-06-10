@@ -4,18 +4,28 @@
 #   make build
 #   make test
 #   make clean
+#
+# Two binaries:
+#   fh  — idiomatic Go runner (ff/v4 CLI + ZombieZen SQLite store)
+#   fhc — byte-faithful C-port runner (internal/game CommandRunner)
 
 
-.PHONY: all build version test tidy clean golden-rng help
+.PHONY: all build build-fh build-fhc version test tidy clean golden-rng help
 
 all: build
 
-build:
+build: build-fh build-fhc
+
+build-fh:
 	mkdir -p dist/local
-	go build -o dist/local/fh .
+	go build -o dist/local/fh ./cmd/fh
+
+build-fhc:
+	mkdir -p dist/local
+	go build -o dist/local/fhc ./cmd/fhc
 
 version:
-	go run . version
+	go run ./cmd/fh version
 
 test:
 	go test ./...
@@ -23,7 +33,7 @@ test:
 tidy:
 	go mod tidy
 
-golden-rng: build
+golden-rng: build-fh
 	dist/local/fh update golden rng
 
 clean:
@@ -31,9 +41,11 @@ clean:
 
 help:
 	@echo "Targets:"
-	@echo "  build             Build binary to dist/local/fh"
+	@echo "  build             Build both binaries to dist/local/{fh,fhc}"
+	@echo "  build-fh          Build idiomatic Go runner to dist/local/fh"
+	@echo "  build-fhc         Build byte-faithful C-port runner to dist/local/fhc"
 	@echo "  version           Run version command"
 	@echo "  test              Run all tests"
 	@echo "  tidy              Run 'go mod tidy'"
 	@echo "  golden-rng        Rebuild golden RNG test files"
-	@echo "  clean             Remove $(DIST) directory"
+	@echo "  clean             Remove dist/local and dist/linux directories"
