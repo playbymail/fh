@@ -30,6 +30,44 @@ This will update the RNG-related golden files in `internal/engine/rng/testdata/`
 
 Note: Only run this command when the test logic or expected output has changed intentionally.
 
+## SQLite Store Testing
+
+The store package (`internal/data/store`) is backed by SQLite via
+`zombiezen.com/go/sqlite` with migrations managed by `sqlitemigration`. Tests
+use temporary, file-based databases so each test is isolated.
+
+```go
+dbPath := filepath.Join(t.TempDir(), "test.db")
+st, err := NewSQLiteStore(dbPath, false)
+```
+
+Key points:
+
+- **Schema version** is the count of applied migrations, tracked by
+  `PRAGMA user_version`. `GetSchemaVersion` returns it as a string. Assert
+  against `strconv.Itoa(len(appSchema.Migrations))` so tests stay correct as
+  migrations are appended.
+- **Raw connection access** in tests goes through the pool, not a `*sql.DB`:
+
+  ```go
+  conn, err := st.pool.Take(ctx)
+  if err != nil {
+      t.Fatal(err)
+  }
+  err = sqlitex.Execute(conn, "DELETE FROM game WHERE id = ?",
+      &sqlitex.ExecOptions{Args: []any{"game1"}})
+  st.pool.Put(conn)
+  ```
+
+- **Foreign keys / cascade** are enforced (`PRAGMA foreign_keys = ON` is set in
+  the pool's `PrepareConn` hook), so cascade-delete behavior is testable.
+- **Migration compatibility**: migrations use `CREATE TABLE IF NOT EXISTS`, so a
+  database created by older schema code (left at `user_version = 0`) migrates
+  cleanly on open. `appSchema.AppID` is intentionally `0` to keep such databases
+  openable.
+
+See `internal/data/store/MIGRATIONS.md` for how to add and test new migrations.
+
 ## JSON Compatibility Testing
 
 We validate our Go implementation against the original C version using golden file testing with shared JSON files.

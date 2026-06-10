@@ -5,16 +5,17 @@ import (
 	"errors"
 	"io"
 	"os"
-	"strings"
+	"strconv"
 
 	"github.com/playbymail/fh/internal/cerrs"
 	"zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitemigration"
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 // SQLiteStore implements Store using SQLite database.
 type SQLiteStore struct {
-	pool *sqlitex.Pool
+	pool *sqlitemigration.Pool
 }
 
 // prepareConn applies per-connection pragmas. WAL journal mode is set via the
@@ -34,96 +35,15 @@ func prepareConn(conn *sqlite.Conn) error {
 	return nil
 }
 
-// OpenSQLiteStore opens an existing SQLite store.
-func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	_, err := os.Stat(dbPath)
-	if os.IsNotExist(err) {
-		return nil, cerrs.ErrNotExist
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	pool, err := sqlitex.NewPool(dbPath, sqlitex.PoolOptions{
-		Flags:       sqlite.OpenReadWrite | sqlite.OpenWAL | sqlite.OpenURI,
-		PrepareConn: prepareConn,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	store := &SQLiteStore{pool: pool}
-
-	// Check and upgrade schema if needed
-	expected := "0001_initial"
-	version, err := store.GetSchemaVersion(context.Background())
-	if err != nil {
-		store.Close()
-		return nil, err
-	}
-
-	if version != expected {
-		if err := store.UpgradeSchema(context.Background()); err != nil {
-			store.Close()
-			return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
-		}
-
-		version, err = store.GetSchemaVersion(context.Background())
-		if err != nil || version != expected {
-			store.Close()
-			return nil, cerrs.ErrSchemaTooNew
-		}
-	}
-
-	return store, nil
-}
-
-// NewSQLiteStore creates a new SQLite store.
-func NewSQLiteStore(dbPath string, force bool) (*SQLiteStore, error) {
-	_, err := os.Stat(dbPath)
-	exists := !os.IsNotExist(err)
-	if exists {
-		if !force {
-			return nil, cerrs.ErrExists
-		}
-		if err := os.Remove(dbPath); err != nil {
-			return nil, errors.Join(cerrs.ErrExists, err)
-		}
-	}
-
-	pool, err := sqlitex.NewPool(dbPath, sqlitex.PoolOptions{
-		Flags:       sqlite.OpenReadWrite | sqlite.OpenCreate | sqlite.OpenWAL | sqlite.OpenURI,
-		PrepareConn: prepareConn,
-	})
-	if err != nil {
-		return nil, errors.Join(cerrs.ErrNotOpened, err)
-	}
-
-	conn, err := pool.Take(context.Background())
-	if err != nil {
-		pool.Close()
-		return nil, errors.Join(cerrs.ErrNotOpened, err)
-	}
-	err = setupSchema(conn)
-	pool.Put(conn)
-	if err != nil {
-		pool.Close()
-		return nil, errors.Join(cerrs.ErrSchemaSetupFailed, err)
-	}
-
-	return &SQLiteStore{pool: pool}, nil
-}
-
-// setupSchema creates the database tables.
-func setupSchema(conn *sqlite.Conn) error {
-	schema := `
--- migrations
-CREATE TABLE IF NOT EXISTS migrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  applied_at TEXT NOT NULL
-);
-
+// appSchema defines the ordered list of schema migrations applied by
+// sqlitemigration. The index of each script (1-based once applied) is tracked
+// in the database via PRAGMA user_version, so scripts must only ever be
+// appended, never reordered or edited once released. Statements use
+// "IF NOT EXISTS" so databases created by earlier schema-management code
+// migrate cleanly.
+var appSchema = sqlitemigration.Schema{
+	Migrations: []string{
+		`
 -- games & turns
 CREATE TABLE IF NOT EXISTS game (
   id TEXT PRIMARY KEY,
@@ -179,15 +99,66 @@ CREATE TABLE IF NOT EXISTS report (
 
 -- indexes
 CREATE INDEX IF NOT EXISTS idx_turn_game_started ON turn(game_id, started_at);
-`
-	if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
-		return err
+`,
+	},
+}
+
+// openPool opens a migration-managed connection pool and blocks until all
+// migrations have been applied, surfacing any migration error.
+func openPool(dbPath string, flags sqlite.OpenFlags) (*sqlitemigration.Pool, error) {
+	pool := sqlitemigration.NewPool(dbPath, appSchema, sqlitemigration.Options{
+		Flags:       flags,
+		PrepareConn: prepareConn,
+	})
+
+	// Take a connection to force migrations to complete and surface any error.
+	conn, err := pool.Take(context.Background())
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	pool.Put(conn)
+
+	return pool, nil
+}
+
+// OpenSQLiteStore opens an existing SQLite store.
+func OpenSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	_, err := os.Stat(dbPath)
+	if os.IsNotExist(err) {
+		return nil, cerrs.ErrNotExist
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// Record the initial migration
-	return sqlitex.Execute(conn, `
-		INSERT OR IGNORE INTO migrations (name, applied_at) VALUES ('0001_initial', datetime('now'))
-	`, nil)
+	pool, err := openPool(dbPath, sqlite.OpenReadWrite|sqlite.OpenWAL|sqlite.OpenURI)
+	if err != nil {
+		return nil, errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
+	}
+
+	return &SQLiteStore{pool: pool}, nil
+}
+
+// NewSQLiteStore creates a new SQLite store.
+func NewSQLiteStore(dbPath string, force bool) (*SQLiteStore, error) {
+	_, err := os.Stat(dbPath)
+	exists := !os.IsNotExist(err)
+	if exists {
+		if !force {
+			return nil, cerrs.ErrExists
+		}
+		if err := os.Remove(dbPath); err != nil {
+			return nil, errors.Join(cerrs.ErrExists, err)
+		}
+	}
+
+	pool, err := openPool(dbPath, sqlite.OpenReadWrite|sqlite.OpenCreate|sqlite.OpenWAL|sqlite.OpenURI)
+	if err != nil {
+		return nil, errors.Join(cerrs.ErrSchemaSetupFailed, err)
+	}
+
+	return &SQLiteStore{pool: pool}, nil
 }
 
 // CreateGame inserts a new game.
@@ -478,7 +449,8 @@ func (r *ByteReader) Close() error {
 	return nil
 }
 
-// GetSchemaVersion returns the current schema version.
+// GetSchemaVersion returns the current schema version, which is the number of
+// applied migrations as tracked by PRAGMA user_version.
 func (s *SQLiteStore) GetSchemaVersion(ctx context.Context) (string, error) {
 	conn, err := s.pool.Take(ctx)
 	if err != nil {
@@ -486,82 +458,28 @@ func (s *SQLiteStore) GetSchemaVersion(ctx context.Context) (string, error) {
 	}
 	defer s.pool.Put(conn)
 
-	var version string
-	err = sqlitex.Execute(conn, `
-		SELECT name FROM migrations ORDER BY id DESC LIMIT 1
-	`, &sqlitex.ExecOptions{
+	var version int
+	err = sqlitex.Execute(conn, "PRAGMA user_version;", &sqlitex.ExecOptions{
 		ResultFunc: func(stmt *sqlite.Stmt) error {
-			version = stmt.ColumnText(0)
+			version = stmt.ColumnInt(0)
 			return nil
 		},
 	})
 	if err != nil {
-		if isTableNotExistError(err) {
-			return "", nil
-		}
 		return "", err
 	}
-	return version, nil
+	return strconv.Itoa(version), nil
 }
 
-// isTableNotExistError checks if the error is due to missing table.
-func isTableNotExistError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "no such table") || strings.Contains(errMsg, "does not exist")
-}
-
-// migration represents a database schema migration.
-type migration struct {
-	name string
-	up   func(*sqlite.Conn) error
-}
-
-// migrations is the ordered list of all schema migrations.
-var migrations = []migration{
-	{
-		name: "0001_initial",
-		up:   setupSchema,
-	},
-}
-
-// UpgradeSchema applies pending schema upgrades.
+// UpgradeSchema ensures all pending migrations have been applied. Migrations
+// are applied automatically by sqlitemigration when the pool is opened, so this
+// simply forces a connection acquisition to surface any migration error.
 func (s *SQLiteStore) UpgradeSchema(ctx context.Context) error {
-	currentVersion, err := s.GetSchemaVersion(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Find which migrations need to be applied
-	startIndex := 0
-	if currentVersion != "" {
-		for i, m := range migrations {
-			if m.name == currentVersion {
-				startIndex = i + 1
-				break
-			}
-		}
-	}
-
-	if startIndex >= len(migrations) {
-		return nil
-	}
-
 	conn, err := s.pool.Take(ctx)
 	if err != nil {
-		return err
+		return errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
 	}
-	defer s.pool.Put(conn)
-
-	// Apply pending migrations
-	for i := startIndex; i < len(migrations); i++ {
-		if err := migrations[i].up(conn); err != nil {
-			return errors.Join(cerrs.ErrSchemaUpgradeFailed, err)
-		}
-	}
-
+	s.pool.Put(conn)
 	return nil
 }
 

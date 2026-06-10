@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -130,8 +131,10 @@ func TestSchemaUpgrade(t *testing.T) {
 		t.Fatalf("failed to get schema version: %v", err)
 	}
 
-	if version != "0001_initial" {
-		t.Errorf("expected version 0001_initial, got %q", version)
+	// sqlitemigration tracks the number of applied migrations in user_version.
+	want := strconv.Itoa(len(appSchema.Migrations))
+	if version != want {
+		t.Errorf("expected version %q, got %q", want, version)
 	}
 }
 

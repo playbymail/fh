@@ -10,6 +10,26 @@ Note that the ../Far-Horizons/ folder contains a clone of the github.com/playbym
 3. Store game state in a SQLite datastore (replacing the original binary data files); use JSON for config input and test/export snapshots.
 4. Use the `github.com/maloquacious/semver` for semantic versioning.
 
+## Data Store
+The SQLite store lives in `internal/data/store` behind the `Store` interface.
+
+- **Driver**: `zombiezen.com/go/sqlite` (CGo-free, builds with `CGO_ENABLED=0`).
+  We deliberately do **not** use `database/sql`; `modernc.org/sqlite` remains
+  only as an indirect dependency of zombiezen.
+- **Connections**: access goes through a `*sqlitemigration.Pool`. Every method
+  must `conn, err := s.pool.Take(ctx)` and `defer s.pool.Put(conn)`. A leaked
+  connection deadlocks the pool.
+- **Queries**: use `sqlitex.Execute` / `sqlitex.ExecuteScript` with
+  `ExecOptions.Args` for binding and `ResultFunc` for row scanning. Wrap
+  multi-statement writes in `sqlitex.Transaction(conn)`.
+- **Pragmas**: `foreign_keys`, `busy_timeout`, and `synchronous` are set per
+  connection in the pool's `PrepareConn` hook; WAL is enabled via the
+  `sqlite.OpenWAL` flag.
+- **Migrations**: managed by `zombiezen.com/go/sqlite/sqlitemigration`. The
+  schema is the append-only `appSchema.Migrations []string` slice; version is
+  tracked by `PRAGMA user_version`. Never edit or reorder a released migration —
+  only append. See `internal/data/store/MIGRATIONS.md`.
+
 
 ## Commands
 * CLI command:
