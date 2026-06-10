@@ -12,8 +12,8 @@ The new version is written in Go and designed for deterministic, replayable turn
 - Deterministic results via seed-based RNG derived from `{gameID, playerID, turnID}`.
 - Parallel, dependency-aware order execution.
 - Modular architecture separating world model, orders, reports, and storage.
-  - JSON data files by default.
-  - Optional in-memory Sqlite datastore for testing.
+  - SQLite datastore for game state.
+  - JSON for config input and test/export snapshots.
 
 ---
 

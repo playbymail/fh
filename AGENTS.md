@@ -6,8 +6,8 @@ Note that the ../Far-Horizons/ folder contains a clone of the github.com/playbym
 
 ## Objectives
 1. Convert the existing game engine (C source) to idiomatic Go.
-2. Use Cobra to implement the command line interface.
-3. Update the game I/O to read and write JSON data files instead of binary data files.
+2. Use `github.com/peterbourgon/ff/v4` to implement the command line interface.
+3. Store game state in a SQLite datastore (replacing the original binary data files); use JSON for config input and test/export snapshots.
 4. Use the `github.com/maloquacious/semver` for semantic versioning.
 
 

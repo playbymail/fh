@@ -4,7 +4,7 @@
 
 ### 1. Project Setup and Structure
 - [ ] Establish Go project structure per INTENTIONS.md layout
-- [ ] Set up Cobra CLI framework for command-line interface
+- [ ] Set up `peterbourgon/ff/v4` CLI framework for command-line interface
 - [ ] Implement "version" command as proof of concept for project structure
 - [ ] Integrate semantic versioning with `github.com/maloquacious/semver`
 - [ ] Set up linting, formatting, and testing infrastructure

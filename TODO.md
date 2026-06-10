@@ -6,7 +6,7 @@ This document outlines the major deliverables and milestones for rewriting the c
 - Need thorough understanding of original C mechanics before implementation
 - Deterministic RNG and parallel execution require careful design
 - JSON vs. SQLite storage options may affect performance
-- Cobra CLI integration should be straightforward
+- `peterbourgon/ff/v4` CLI integration should be straightforward
 - Semantic versioning library is specified
 
 ## Completion Criteria
@@ -22,7 +22,7 @@ Each sprint follows TDD principles: write tests first, implement minimal code to
 
 ### Sprint 1: Foundation (1-2 weeks)
 - [x] Scaffold repo with proper Go structure and internal packages
-- [x] Set up Cobra CLI framework and implement "version" command
+- [x] Set up `peterbourgon/ff/v4` CLI framework and implement "version" command
 - [x] Integrate semantic versioning with `github.com/maloquacious/semver`
 - [x] Set up linting, formatting, and basic testing
 - [x] Configure build system (Makefile)

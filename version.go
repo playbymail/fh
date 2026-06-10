@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/maloquacious/semver"
-	"github.com/spf13/cobra"
+	"github.com/peterbourgon/ff/v4"
 )
 
 var (
@@ -17,15 +18,23 @@ var (
 	}
 )
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print the version number of fh",
-	Long:  `All software has versions. This is fh's`,
-	Run: func(cmd *cobra.Command, args []string) {
-		if verbose, err := cmd.Flags().GetBool("verbose"); err == nil && verbose {
-			fmt.Println(version.String())
-			return
-		}
-		fmt.Println(version.Core())
-	},
+// newVersionCmd returns the "version" command.
+func newVersionCmd(parent *ff.FlagSet) *ff.Command {
+	fs := ff.NewFlagSet("version").SetParent(parent)
+	verbose := fs.BoolShort('v', "Show detailed version information")
+
+	return &ff.Command{
+		Name:      "version",
+		Usage:     "fh version [-v]",
+		ShortHelp: "Print the version number of fh",
+		Flags:     fs,
+		Exec: func(ctx context.Context, args []string) error {
+			if *verbose {
+				fmt.Println(version.String())
+				return nil
+			}
+			fmt.Println(version.Core())
+			return nil
+		},
+	}
 }
