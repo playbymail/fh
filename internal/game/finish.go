@@ -628,8 +628,13 @@ func finishCommand(args []string) int {
 					percent_increase /= 100
 
 					/* Add a small random variation. */
-					percent_increase +=
-						rnd(percent_increase/4) - rnd(percent_increase/4)
+					// Lint exception: rnd() is a stateful PRNG, so the two
+					// calls draw different values — a deliberate zero-centered
+					// variation, faithful to the C source (finish.c). The
+					// SA4000 "identical expressions" check wrongly assumes rnd
+					// is pure. Do not "simplify" this.
+					//lint:ignore SA4000 rnd() is stateful; the two draws differ (faithful to C finish.c)
+					percent_increase += rnd(percent_increase/4) - rnd(percent_increase/4)
 
 					/* Add bonus for Biology technology. */
 					percent_increase += species.tech_level[BI] / 20
