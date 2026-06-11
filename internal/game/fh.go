@@ -109,7 +109,11 @@ func CommandRunner(argv []string) error {
 		} else if arg == "show" {
 			return fmt.Errorf("fh: %s: not implemented", arg)
 		} else if arg == "stats" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			rv := statsCommand(args)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else if arg == "turn" {
 			rv := turnCommand(args)
 			if rv != 0 {
