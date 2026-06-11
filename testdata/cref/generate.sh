@@ -50,6 +50,9 @@ snapshot galaxy
 "$FH" create home-system-templates > create_templates.log 2>&1
 cp "$EXAMPLES/species.cfg" .
 "$FH" create species --config=species.cfg --radius=6 > create_species.log 2>&1
+# logrnd is state-independent (it seeds from the historical default seed),
+# so capture it here once and keep it with the setup snapshot.
+"$FH" logrnd > logrnd.log 2>&1
 snapshot setup
 
 # --- turn1: locations, default orders, and the full turn pipeline ---

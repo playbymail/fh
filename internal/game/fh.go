@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"os"
 )
 
 func CommandRunner(argv []string) error {
@@ -69,7 +70,14 @@ func CommandRunner(argv []string) error {
 			}
 			return nil
 		} else if arg == "logrnd" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			// Mirrors C engine.c logRandomCommand; the Go port writes to
+			// an io.Writer for testability, so pass os.Stdout here. The C
+			// command ignores its args and always returns 0.
+			rv := logRandomCommand(os.Stdout)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else if arg == "post-arrival" {
 			rv := postArrivalCommand(args)
 			if rv != 0 {
