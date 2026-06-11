@@ -6,3 +6,9 @@
 !cref/
 cref/*
 !cref/generate.sh
+# ...and keep the hand-written scenario order fixtures (committed inputs, not
+# generated): testdata/scenarios/<name>/sp0X.ord.
+!scenarios/
+scenarios/*
+!scenarios/*/
+!scenarios/*/*.ord

@@ -123,4 +123,52 @@ run_turn 2
 run_turn 3
 run_turn 4
 
-echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4}"
+# --- scenarios: hand-written-order parity scenarios ---
+#
+# Each scenario starts from a FRESH copy of the post-setup state (NOT the
+# accumulating turn1-4 run directory), runs locations, then drops the
+# committed hand-written orders from testdata/scenarios/<name>/ in place of
+# `create orders`, and runs the same combat..report tail plus stats/turn as
+# turn 1. Because every "$FH" invocation re-seeds from FH_SEED and chains
+# through the .dat/.ord files, the scenario run is isolated from the
+# galaxy/setup/turn1-4 stages above. The hand orders are tracked fixtures
+# (inputs); this only captures the C-engine reference outputs that the
+# scenario golden tests diff against.
+SCENARIOS="$HERE/../scenarios"
+
+run_scenario() {
+	name=$1
+	sdir="$WORK/scenario_$name"
+	rm -rf "$sdir"
+	mkdir -p "$sdir"
+	# Fresh post-setup state: shared galaxy + per-species .dat plus the
+	# species-creation logs the report phase prepends to each report.
+	cp "$HERE/setup/galaxy.dat" "$HERE/setup/stars.dat" "$HERE/setup/planets.dat" "$sdir/"
+	for sp in 01 02 03 04; do
+		cp "$HERE/setup/sp$sp.dat" "$HERE/setup/sp$sp.log" "$sdir/"
+	done
+	cd "$sdir"
+
+	"$FH" locations > locations.log 2>&1
+	# Hand-written orders replace `create orders`.
+	for sp in 01 02 03 04; do cp "$SCENARIOS/$name/sp$sp.ord" "$sdir/sp$sp.ord"; done
+
+	"$FH" combat > combat.log 2>&1
+	"$FH" pre-departure > predeparture.log 2>&1
+	"$FH" jump > jump.log 2>&1
+	"$FH" production > production.log 2>&1
+	"$FH" post-arrival > postarrival.log 2>&1
+	"$FH" finish > finish.log 2>&1
+	"$FH" report > report.log 2>&1
+	"$FH" stats > stats.log 2>&1
+	"$FH" turn > turn.log 2>&1
+
+	rm -rf "$HERE/$name"
+	mkdir -p "$HERE/$name"
+	cp "$sdir"/* "$HERE/$name/"
+	cd "$WORK"
+}
+
+run_scenario build
+
+echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4,build}"
