@@ -128,3 +128,15 @@ func TestJumpScenarioMatchesC(t *testing.T) { runScenarioMulti(t, "jump", 2) }
 // post-arrival return) — exercising do_TRANSFER_command in both directions and
 // both phases, including the ship cargo-capacity accounting.
 func TestTransferScenarioMatchesC(t *testing.T) { runScenarioMulti(t, "transfer", 2) }
+
+// TestCombatScenarioMatchesC forces a deep-space battle between two species
+// over three turns. The default 4-species setup places the home systems far
+// apart, so the engagement is staged: turn 1 species 1 (Alderaan) and species 2
+// (Bantustan) each build an escort (ES) warship; turn 2 both JUMP their escort
+// to the same neutral star (20 25 24), chosen for low mishap from both homes
+// (5.00% / 8.25%); turn 3 both issue BATTLE / ENGAGE 3 (deep-space fight) /
+// ATTACK SP <other> orders, so the combat phase resolves a real battle. This
+// exercises the combat-order parser (including best_species_index in ATTACK
+// name resolution) and the round-by-round battle resolution. Species 3 and 4
+// stay home with idle orders.
+func TestCombatScenarioMatchesC(t *testing.T) { runScenarioMulti(t, "combat", 3) }

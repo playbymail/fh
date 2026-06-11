@@ -237,6 +237,9 @@ func ResetState() {
 
 	resetLogState()
 	resetMoneyState()
+	resetCombatState()
+	resetInterceptState()
+	resetPlanetState()
 
 	prngSeed = 0
 }

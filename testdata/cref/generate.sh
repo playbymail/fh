@@ -214,5 +214,6 @@ run_scenario_multi() {
 run_scenario build
 run_scenario_multi jump 2
 run_scenario_multi transfer 2
+run_scenario_multi combat 3
 
-echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4,build,jump,transfer}"
+echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4,build,jump,transfer,combat}"
