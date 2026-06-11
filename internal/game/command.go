@@ -1006,6 +1006,7 @@ yet_again:
 
 	best_score = -9999
 	next_best_score = -9999
+	best_species_index = -1
 	for species_index = 0; species_index < galaxy.num_species; species_index++ {
 		if data_in_memory[species_index] == FALSE {
 			continue
@@ -1021,6 +1022,11 @@ yet_again:
 		} else if n > next_best_score {
 			next_best_score = n
 		}
+	}
+
+	/* No in-memory species was scored, so there is nothing to match against. */
+	if best_species_index < 0 {
+		return FALSE
 	}
 
 	sp = &spec_data[best_species_index]

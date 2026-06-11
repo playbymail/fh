@@ -2003,7 +2003,7 @@ get_destination:
 
 func do_UNLOAD_command() {
 	var i, found, item_count, recovering_home_planet, alien_index int
-	var n, reb, current_pop int
+	var n, reb int
 	var alien_home_nampla *nampla_data_t
 
 	/* Get the ship. */
@@ -2162,8 +2162,6 @@ func do_UNLOAD_command() {
 	nampla.item_quantity[CU] -= item_count
 	nampla.item_quantity[IU] -= item_count
 	nampla.IUs_to_install += item_count
-	current_pop += item_count /* C reads an uninitialized local here; the result is never used. */
-	_ = current_pop
 
 	log_string("Installation of ")
 	log_int(item_count)

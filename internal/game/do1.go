@@ -895,6 +895,7 @@ build_ship:
 
 	/* Search all ships for name. */
 	found = FALSE
+	new_ship = FALSE
 	unused_ship_available = FALSE
 	for ship_index = 0; ship_index < species.num_ships; ship_index++ {
 		ship = ship_base[ship_index]
@@ -942,6 +943,11 @@ check_ship:
 		}
 
 		if unused_ship_available != FALSE {
+			/* Reusing a freed slot still counts as a new ship: if the order is
+			 * later rejected, delete_ship() reverts the overwritten slot back to
+			 * its unused (pn == 99) state. The (!unused_ship_available) guard at
+			 * the ship-count bump below keeps this from inflating num_ships. */
+			new_ship = TRUE
 			ship = unused_ship
 		} else {
 			/* Make sure we have enough memory for new ship. */

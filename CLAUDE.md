@@ -10,12 +10,15 @@ The authoritative C source is cloned at **`../Far-Horizons/`** (package
 `github.com/playbymail/Far-Horizons`). Consult it whenever porting — the goal of
 phase 1 is to match it exactly.
 
-**Target version: Far Horizons `v7.5.10`.** The golden reference data
+**Target version: Far Horizons `v7.5.11`.** The golden reference data
 (`testdata/cref/`) and every parity test are generated from that tag, so keep
-the `../Far-Horizons/` clone on `v7.5.10` (it includes the deterministic
-`max_tech_level` fix in `finish.c`). If the maintainer adopts a newer upstream
-release, bump this version note and regenerate the goldens (`make golden-ref`)
-in the same change.
+the `../Far-Horizons/` clone on `v7.5.11`. This release includes the
+deterministic `max_tech_level` fix in `finish.c` (v7.5.10) plus a set of
+read-before-init fixes (`stats.c` `totalBankedEconUnits`, `do.c`
+`do_BUILD_command`'s `new_ship`, `command.c`/`combat.c` `best_species_index`
+guards, and removal of the `do_UNLOAD` `current_pop` dead store) — all mirrored
+in the Go port. If the maintainer adopts a newer upstream release, bump this
+version note and regenerate the goldens (`make golden-ref`) in the same change.
 
 ## Strategy: two phases, in order
 

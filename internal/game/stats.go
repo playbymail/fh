@@ -88,7 +88,10 @@ func statsCommand(args []string) int {
 	var total_production int
 	var total_tonnage int
 
-	var totalBankedEconUnits, minBankedEconUnits, maxBankedEconUnits, avgBankedEconUnits int
+	var totalBankedEconUnits int = 0
+	var minBankedEconUnits int = 1000000000
+	var maxBankedEconUnits int = 0
+	var avgBankedEconUnits int
 
 	var nampla_index int = 0
 	var ship_index int = 0
@@ -307,16 +310,11 @@ func statsCommand(args []string) int {
 		fmt.Printf("%8d%8d", total_offensive_power, total_defensive_power)
 
 		totalBankedEconUnits += species.econ_units
-		if species_number == 1 {
+		if minBankedEconUnits > species.econ_units {
 			minBankedEconUnits = species.econ_units
+		}
+		if maxBankedEconUnits < species.econ_units {
 			maxBankedEconUnits = species.econ_units
-		} else {
-			if minBankedEconUnits > species.econ_units {
-				minBankedEconUnits = species.econ_units
-			}
-			if maxBankedEconUnits < species.econ_units {
-				maxBankedEconUnits = species.econ_units
-			}
 		}
 		fmt.Printf("%9d\n", species.econ_units)
 	}
