@@ -62,24 +62,6 @@ func TestTurnPipelineMatchesC(t *testing.T) {
 	compareOutputs(t, turn1Dir, turnArtifacts(1), nil)
 }
 
-// knownTurn2Divergence documents artifacts that do not yet match the C
-// reference because of a bug in the turn_number>1 finish path — code that
-// turn 1 skips via its `if turn_number == 1` shortcuts, so the turn-2
-// pipeline is the first thing to exercise it. A PRNG-sequence desync reaches
-// finish's random tech-level roll (`old_tech_level > 0 && rnd(6) == 6`),
-// giving species 2 and 3 a spurious life-support/biology tech level; the
-// state difference then cascades into those species' reports.
-//
-// These entries are logged, not failed, so the golden suite stays green
-// while the gap stays visible. Remove an entry as the bug is fixed — the
-// test flags any listed file that has silently started matching again.
-var knownTurn2Divergence = map[string]string{
-	"sp02.dat":    "spurious LS/BI tech level (rnd desync in turn>1 finish path)",
-	"sp03.dat":    "spurious tech level (rnd desync in turn>1 finish path)",
-	"sp02.rpt.t2": "downstream of sp02.dat tech divergence",
-	"sp03.rpt.t2": "downstream of sp03.dat tech divergence",
-}
-
 // TestTurnTwoPipelineMatchesC continues from the turn-1 state into a second
 // turn and compares the turn-2 artifacts against testdata/cref/turn2. It runs
 // turn 1 first (in the same working directory) so every intermediate file —
@@ -120,7 +102,7 @@ func TestTurnTwoPipelineMatchesC(t *testing.T) {
 	}, turnTail()...)
 	runSteps(t, turn2)
 
-	compareOutputs(t, turn2Dir, turnArtifacts(2), knownTurn2Divergence)
+	compareOutputs(t, turn2Dir, turnArtifacts(2), nil)
 }
 
 // turnArtifacts is the list of disk artifacts a turn pipeline produces, for

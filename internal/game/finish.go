@@ -59,10 +59,18 @@ func finishCommand(args []string) int {
 	var donor_species *species_data_t
 	var home_nampla *nampla_data_t
 
-	// In C, max_tech_level is an uninitialized local that in practice holds
-	// a large garbage value until first assigned; Go's zero value of 0 would
-	// wrongly clamp a random tech increase, so start with "no limit".
-	max_tech_level = 9999
+	// max_tech_level is an uninitialized local in C (finish.c). It is only
+	// assigned inside the experience_points != 0 branch of the tech-increase
+	// loop; when a species has spent no research (experience_points == 0) the
+	// loop does `goto check_random` and the clamp
+	//   if (new_tech_level > max_tech_level) new_tech_level = max_tech_level;
+	// reads whatever stale value max_tech_level last held. On the reference
+	// build that residual stack value is small, so the clamp cancels the
+	// random 1-in-6 tech bump (`old_tech_level > 0 && rnd(6) == 6`) — i.e. a
+	// species with no research gets no random tech increase. Go's zero value
+	// of 0 reproduces that clamping exactly, so we deliberately leave
+	// max_tech_level at 0 here rather than seeding a "no limit" value.
+	max_tech_level = 0
 
 	/* Get commonly used data. */
 	get_galaxy_data()
