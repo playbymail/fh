@@ -120,3 +120,11 @@ func TestBuildScenarioMatchesC(t *testing.T) { runScenario(t, "build") }
 // (Ships start under construction and jump runs before production, so a
 // freshly built ship cannot jump the same turn it is built.)
 func TestJumpScenarioMatchesC(t *testing.T) { runScenarioMulti(t, "jump", 2) }
+
+// TestTransferScenarioMatchesC drives cargo handling over two turns: turn 1
+// builds a TR3 transport and stocks 30 colonial mining units (IU) on the home
+// planet, turn 2 TRANSFERs 20 IU from the planet onto the transport (a
+// pre-departure load) and 5 IU back from the transport to the planet (a
+// post-arrival return) — exercising do_TRANSFER_command in both directions and
+// both phases, including the ship cargo-capacity accounting.
+func TestTransferScenarioMatchesC(t *testing.T) { runScenarioMulti(t, "transfer", 2) }
