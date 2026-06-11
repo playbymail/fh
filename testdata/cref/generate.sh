@@ -91,6 +91,10 @@ for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t1.ord; done
 "$FH" show galaxy > show_galaxy.log 2>&1
 cp galaxy.map show_galaxy.map
 "$FH" show help > show_help.log 2>&1
+# export the post-turn-1 state to JSON (galaxy.json, systems.json,
+# species.NNN.json). The idiomatic `fh` engine ingests these (plus sp0X.log
+# and locations.dat) to validate its report renderer against this stage.
+"$FH" export json > export_json.log 2>&1
 snapshot turn1
 
 # run_turn N runs one later turn (N >= 2) of the pipeline in the same

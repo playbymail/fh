@@ -4,6 +4,8 @@ package store
 import (
 	"context"
 	"io"
+
+	"github.com/playbymail/fh/internal/model"
 )
 
 // Store is the interface for game data persistence.
@@ -12,6 +14,10 @@ type Store interface {
 	// Schema management
 	GetSchemaVersion(ctx context.Context) (string, error)
 	UpgradeSchema(ctx context.Context) error
+
+	// Domain world (the fh engine's structured game state)
+	IngestWorld(ctx context.Context, gameID string, w *model.World) error
+	LoadWorld(ctx context.Context, gameID string) (*model.World, error)
 
 	// Game management
 	CreateGame(ctx context.Context, id, name string) error
