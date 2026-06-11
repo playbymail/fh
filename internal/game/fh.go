@@ -11,7 +11,10 @@ func CommandRunner(argv []string) error {
 	}
 
 	for i := 1; i < argc; i++ {
-		arg, args := argv[i], argv[i+1:]
+		// Pass argv from the command name onward (mirrors C's
+		// `cmd(argc - i, argv + i)`); the command functions expect
+		// args[0] to be the command name.
+		arg, args := argv[i], argv[i:]
 
 		if arg == "?" || arg == "-?" || arg == "--help" {
 			return fmt.Errorf("fh: showHelp()")

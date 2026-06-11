@@ -1,2 +1,8 @@
+# Ignore all test data by default (the generated C reference data under
+# cref/{galaxy,setup,turn1} is large and reproducible via cref/generate.sh).
 *
 !.gitignore
+# ...but keep the reference-data generator script itself under version control.
+!cref/
+cref/*
+!cref/generate.sh
