@@ -67,7 +67,7 @@ func buildSubcommands(rootFlags *ff.FlagSet) []*ff.Command {
 	return []*ff.Command{
 		newCreateCmd(rootFlags),
 		newExportCmd(rootFlags),
-		stub(rootFlags, "import", "fh import", "Import game data"),
+		newImportCmd(rootFlags),
 		newInitCmd(rootFlags),
 		stub(rootFlags, "inspect", "fh inspect", "Inspect game state"),
 		stub(rootFlags, "list", "fh list", "List game elements"),
@@ -125,7 +125,7 @@ func newCreateCmd(rootFlags *ff.FlagSet) *ff.Command {
 			galaxyCmd,
 			stub(createFlags, "home-system-templates", "fh create home-system-templates", "Create home system templates"),
 			stub(createFlags, "locations", "fh create locations", "Create locations data file and update economic efficiency in planets data file"),
-			stub(createFlags, "reports", "fh create reports", "Create turn reports"),
+			newCreateReportsCmd(createFlags),
 			speciesCmd,
 		},
 	}

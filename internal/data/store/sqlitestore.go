@@ -100,6 +100,166 @@ CREATE TABLE IF NOT EXISTS report (
 -- indexes
 CREATE INDEX IF NOT EXISTS idx_turn_game_started ON turn(game_id, started_at);
 `,
+		// Migration 2: the fh domain model. Unlike the generic entity-blob
+		// tables above, these store stars/planets/species/namplas/ships as
+		// first-class rows so the engine can render player reports from
+		// structured state. Array-valued columns (gas mixes, tech vectors,
+		// item inventories, contact bitfields) are JSON text. Every table is
+		// scoped to a game and cascades on game deletion.
+		`
+CREATE TABLE IF NOT EXISTS fh_galaxy (
+  game_id       TEXT PRIMARY KEY,
+  turn_number   INTEGER NOT NULL,
+  num_species   INTEGER NOT NULL,
+  d_num_species INTEGER NOT NULL,
+  radius        INTEGER NOT NULL,
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_system (
+  game_id     TEXT NOT NULL,
+  x           INTEGER NOT NULL,
+  y           INTEGER NOT NULL,
+  z           INTEGER NOT NULL,
+  star_type   INTEGER NOT NULL,
+  color       INTEGER NOT NULL,
+  size        INTEGER NOT NULL,
+  home_system INTEGER NOT NULL,
+  worm_here   INTEGER NOT NULL,
+  worm_x      INTEGER NOT NULL,
+  worm_y      INTEGER NOT NULL,
+  worm_z      INTEGER NOT NULL,
+  message     INTEGER NOT NULL,
+  visited_by  TEXT NOT NULL,
+  PRIMARY KEY (game_id, x, y, z),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_planet (
+  game_id           TEXT NOT NULL,
+  sys_x             INTEGER NOT NULL,
+  sys_y             INTEGER NOT NULL,
+  sys_z             INTEGER NOT NULL,
+  orbit             INTEGER NOT NULL,
+  temperature_class INTEGER NOT NULL,
+  pressure_class    INTEGER NOT NULL,
+  special           INTEGER NOT NULL,
+  gas               TEXT NOT NULL,
+  gas_percent       TEXT NOT NULL,
+  diameter          INTEGER NOT NULL,
+  gravity           INTEGER NOT NULL,
+  mining_difficulty INTEGER NOT NULL,
+  md_increase       INTEGER NOT NULL,
+  econ_efficiency   INTEGER NOT NULL,
+  message           INTEGER NOT NULL,
+  PRIMARY KEY (game_id, sys_x, sys_y, sys_z, orbit),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_species (
+  game_id            TEXT NOT NULL,
+  sp_no              INTEGER NOT NULL,
+  name               TEXT NOT NULL,
+  govt_name          TEXT NOT NULL,
+  govt_type          TEXT NOT NULL,
+  x                  INTEGER NOT NULL,
+  y                  INTEGER NOT NULL,
+  z                  INTEGER NOT NULL,
+  pn                 INTEGER NOT NULL,
+  required_gas       INTEGER NOT NULL,
+  required_gas_min   INTEGER NOT NULL,
+  required_gas_max   INTEGER NOT NULL,
+  neutral_gas        TEXT NOT NULL,
+  poison_gas         TEXT NOT NULL,
+  auto_orders        INTEGER NOT NULL,
+  tech_level         TEXT NOT NULL,
+  init_tech_level    TEXT NOT NULL,
+  tech_knowledge     TEXT NOT NULL,
+  tech_eps           TEXT NOT NULL,
+  hp_original_base   INTEGER NOT NULL,
+  econ_units         INTEGER NOT NULL,
+  fleet_cost         INTEGER NOT NULL,
+  fleet_percent_cost INTEGER NOT NULL,
+  contact            TEXT NOT NULL,
+  ally               TEXT NOT NULL,
+  enemy              TEXT NOT NULL,
+  num_namplas        INTEGER NOT NULL,
+  num_ships          INTEGER NOT NULL,
+  log                BLOB,
+  PRIMARY KEY (game_id, sp_no),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_nampla (
+  game_id         TEXT NOT NULL,
+  sp_no           INTEGER NOT NULL,
+  idx             INTEGER NOT NULL,
+  name            TEXT NOT NULL,
+  x               INTEGER NOT NULL,
+  y               INTEGER NOT NULL,
+  z               INTEGER NOT NULL,
+  pn              INTEGER NOT NULL,
+  status          INTEGER NOT NULL,
+  hiding          INTEGER NOT NULL,
+  hidden          INTEGER NOT NULL,
+  siege_eff       INTEGER NOT NULL,
+  shipyards       INTEGER NOT NULL,
+  ius_needed      INTEGER NOT NULL,
+  aus_needed      INTEGER NOT NULL,
+  auto_ius        INTEGER NOT NULL,
+  auto_aus        INTEGER NOT NULL,
+  ius_to_install  INTEGER NOT NULL,
+  aus_to_install  INTEGER NOT NULL,
+  mi_base         INTEGER NOT NULL,
+  ma_base         INTEGER NOT NULL,
+  pop_units       INTEGER NOT NULL,
+  items           TEXT NOT NULL,
+  use_on_ambush   INTEGER NOT NULL,
+  message         INTEGER NOT NULL,
+  special         INTEGER NOT NULL,
+  PRIMARY KEY (game_id, sp_no, idx),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_ship (
+  game_id              TEXT NOT NULL,
+  sp_no                INTEGER NOT NULL,
+  idx                  INTEGER NOT NULL,
+  name                 TEXT NOT NULL,
+  x                    INTEGER NOT NULL,
+  y                    INTEGER NOT NULL,
+  z                    INTEGER NOT NULL,
+  pn                   INTEGER NOT NULL,
+  status               INTEGER NOT NULL,
+  ship_type            INTEGER NOT NULL,
+  dest_x               INTEGER NOT NULL,
+  dest_y               INTEGER NOT NULL,
+  dest_z               INTEGER NOT NULL,
+  just_jumped          INTEGER NOT NULL,
+  arrived_via_wormhole INTEGER NOT NULL,
+  class                INTEGER NOT NULL,
+  tonnage              INTEGER NOT NULL,
+  items                TEXT NOT NULL,
+  age                  INTEGER NOT NULL,
+  remaining_cost       INTEGER NOT NULL,
+  loading_point        INTEGER NOT NULL,
+  unloading_point      INTEGER NOT NULL,
+  special              INTEGER NOT NULL,
+  PRIMARY KEY (game_id, sp_no, idx),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fh_location (
+  game_id TEXT NOT NULL,
+  seq     INTEGER NOT NULL,
+  s       INTEGER NOT NULL,
+  x       INTEGER NOT NULL,
+  y       INTEGER NOT NULL,
+  z       INTEGER NOT NULL,
+  PRIMARY KEY (game_id, seq),
+  FOREIGN KEY (game_id) REFERENCES game(id) ON DELETE CASCADE
+);
+`,
 	},
 }
 
