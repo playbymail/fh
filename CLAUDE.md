@@ -7,8 +7,10 @@ Guidance for Claude Code (and other agents) working in this repository.
 A port of the classic play-by-mail game **Far Horizons** from C to Go.
 
 The authoritative C source is cloned at **`../Far-Horizons/`** (package
-`github.com/playbymail/Far-Horizons`). Consult it whenever porting — the goal of
-phase 1 is to match it exactly.
+`github.com/playbymail/Far-Horizons`). Consult it whenever working on either
+engine. The C-faithful `fhc` engine matches it exactly and is now the finished,
+trusted reference; the idiomatic `fh` engine is validated against `fhc`'s output
+(see Strategy below).
 
 **Target version: Far Horizons `v7.5.12`.** The golden reference data
 (`testdata/cref/`) and every parity test are generated from that tag, so keep
@@ -26,21 +28,30 @@ guards, and removal of the `do_UNLOAD` `current_pop` dead store). If the
 maintainer adopts a newer upstream release, bump this version note and
 regenerate the goldens (`make golden-ref`) in the same change.
 
-## Strategy: two phases, in order
+## Strategy: two phases
 
-1. **Byte-faithful C port first** — `internal/game`, run by the `cmd/fhc` binary.
+1. **Byte-faithful C port (`internal/game`, run by `cmd/fhc`) — done.**
    A direct, auditable translation of the C engine that reproduces the original
    binary `.dat` files, s-expression `.txt` exports, logs, and reports
-   **byte-for-byte**. This is the trusted reference implementation. **Finish and
-   validate this before leaning on the idiomatic package.**
+   **byte-for-byte**. This is the **finished, trusted reference implementation**:
+   the setup phase, the full turn pipeline (locations → combat → pre-departure →
+   jump → production → post-arrival → finish → report), and every CLI command are
+   ported and validated against the C engine (`make test-golden`). Keep it on
+   `v7.5.12` and keep it byte-faithful — it is the oracle the Go port is measured
+   against. Fixes flow C-first (fix/mirror upstream), never Go-only.
 
-2. **Idiomatic Go second** — clean `internal/...` packages run by the `cmd/fh`
-   binary, storing game state in a **SQLite datastore (ZombieZen)** instead of
-   the original binary files (JSON is used for config input and snapshots). It is
-   built and validated *against* the byte-faithful port: only port a subsystem to
-   the idiomatic side once its `fhc` counterpart is correct.
+2. **Idiomatic Go port (`cmd/fh` + clean `internal/...` packages) — active work.**
+   A clean rewrite that stores game state in a **SQLite datastore (ZombieZen)**
+   instead of the original binary `.dat` files (JSON for config input and
+   snapshots). The on-disk `.dat`/s-expression formats are **not** part of `fh`'s
+   contract — SQLite replaces them — so `fh` is **not** validated on `.dat` bytes.
+   Instead, `fh` is validated against `fhc` **on the player-facing turn reports**:
+   for the same seed and the same orders, `fh`'s `sp0X.rpt.tN` reports must be
+   **byte-identical** to `fhc`'s. Reports are storage-format-independent, so they
+   are the parity surface between the two engines. Port and validate one subsystem
+   at a time; only move a subsystem to `fh` once its report output matches `fhc`.
 
-Keep the two cleanly separated. When in doubt, work on the byte-faithful port.
+Keep the two cleanly separated.
 
 ## Layout
 
@@ -86,20 +97,34 @@ testdata/cref/ # C-engine reference output for parity tests (see generate.sh)
 
 `testdata/cref/generate.sh` builds the C engine
 (`../Far-Horizons/build/fh`), runs it under a fixed `FH_SEED`, and writes
-reference `.dat`/`.txt`/`.log` outputs. The Go port must produce byte-identical
-results.
+reference `.dat`/`.txt`/`.log` outputs (plus the player reports) under
+`testdata/cref/<stage>/`. The `fhc` engine must produce byte-identical results.
+Regenerate with `make golden-ref`; run the parity tests with `make test-golden`.
+The reference data is git-ignored.
 
-- Covered today: setup phase — `galaxy_create_test.go`, `species_create_test.go`,
+- Setup phase — `galaxy_create_test.go`, `species_create_test.go`,
   `templates_create_test.go` — plus record sizes and round-trips
   (`io_roundtrip_test.go`).
-- Not yet covered: the turn pipeline (locations → combat → pre-departure → jump →
-  production → post-arrival → finish → report). Adding these golden tests is
-  active work; add them as subsystems are confirmed.
+- The full turn pipeline over four accumulating turns —
+  `turn_pipeline_test.go` (default `create orders`).
+- Hand-written-order scenarios that drive paths default orders never reach —
+  `scenario_test.go` (build, jump, transfer, combat), with committed order
+  fixtures under `testdata/scenarios/<name>/` and a matching `run_scenario` /
+  `run_scenario_multi` block in `generate.sh`. Each scenario diffs every turn
+  artifact — including the `sp0X.rpt.tN` reports — byte-for-byte against the C
+  reference. When you add a scenario: commit the order fixtures, extend
+  `generate.sh`, and add a golden test (see the existing ones as the template).
 
 ## Phase 2: the idiomatic SQLite store (`internal/data/store`)
 
 Behind the `Store` interface.
 
+- **Validation = report parity with `fhc`.** Drive `fh` and `fhc` from the same
+  seed and orders and compare their `sp0X.rpt.tN` reports byte-for-byte; they
+  must match. This is the contract, not the on-disk format — `fh` keeps state in
+  SQLite (+ JSON snapshots), so there are no `.dat`/s-expression bytes to diff.
+  Build subsystem by subsystem and keep each one's report output matching `fhc`
+  before moving on.
 - **Driver**: `zombiezen.com/go/sqlite` (CGo-free; builds with `CGO_ENABLED=0`).
   Do **not** use `database/sql`. `modernc.org/sqlite` is only an indirect dep.
 - **Connections**: go through a `*sqlitemigration.Pool`. Every method does
@@ -122,7 +147,8 @@ go build -o dist/local/fhc ./cmd/fhc   # byte-faithful C-port runner
 go build -o dist/local/fh  ./cmd/fh    # idiomatic Go runner
 go test ./...                          # all tests
 go fmt ./...                           # format
-testdata/cref/generate.sh              # regenerate C reference data
+make golden-ref                        # regenerate C reference data (needs the C engine)
+make test-golden                       # run the C-parity golden tests
 ```
 
 ## Code style

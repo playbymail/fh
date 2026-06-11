@@ -13,22 +13,26 @@ stay on v7.5.12 unless the maintainer bumps the target version here.
 
 ## Strategy: two phases, two binaries
 
-We are doing this in two phases, in order:
-
-1. **Byte-faithful C port first** (`internal/game`, run by `cmd/fhc`).
+1. **Byte-faithful C port (`internal/game`, run by `cmd/fhc`) — done.**
    A direct, line-by-line translation of the C engine that reproduces the
    original binary `.dat` files, s-expression `.txt` exports, logs, and reports
-   **byte-for-byte**. This is the reference implementation we trust.
+   **byte-for-byte**. This is the **finished, trusted reference**: setup, the full
+   turn pipeline, and every CLI command are ported and validated against the C
+   engine (`make test-golden`). Keep it on `v7.5.12` and keep it byte-faithful —
+   it is the oracle the Go port is measured against. Fixes flow C-first.
 
-2. **Idiomatic Go second** (`internal/...` clean packages, run by `cmd/fh`).
+2. **Idiomatic Go port (`cmd/fh` + clean `internal/...` packages) — active work.**
    A clean rewrite that stores game state in a SQLite datastore (ZombieZen)
-   instead of the original binary files, using JSON for config input and
-   test/export snapshots. This is built and validated *against* the
-   byte-faithful port — only start a subsystem here once its `fhc` counterpart
-   is correct.
+   instead of the original binary `.dat` files (JSON for config input and
+   snapshots). The `.dat`/s-expression formats are **not** part of `fh`'s
+   contract, so `fh` is **not** diffed on `.dat` bytes. Instead, `fh` is validated
+   against `fhc` **on the player reports**: for the same seed and orders, `fh`'s
+   `sp0X.rpt.tN` must be **byte-identical** to `fhc`'s. Reports are
+   storage-format-independent — they are the parity surface. Build and validate
+   one subsystem at a time; only move a subsystem to `fh` once its report output
+   matches `fhc`.
 
-Do not blur the two. Work on the byte-faithful port until it is complete and
-validated; the idiomatic package consumes its verified behavior.
+Do not blur the two.
 
 ### Binaries
 - `cmd/fhc` — the **C port** runner. `main` calls `game.CommandRunner(os.Args)`,
@@ -55,13 +59,19 @@ validated; the idiomatic package consumes its verified behavior.
 
 ### Validating against C
 - `testdata/cref/generate.sh` builds and runs the C engine (seeded with
-  `FH_SEED`) to emit reference `.dat`/`.txt`/`.log` outputs under
-  `testdata/cref/`. The Go port must produce byte-identical results.
-- Existing golden tests cover the **setup** phase (`galaxy_create_test.go`,
-  `species_create_test.go`, `templates_create_test.go`) plus binary record-size
-  and round-trip checks (`io_roundtrip_test.go`). Extending coverage to the
-  **turn pipeline** (locations → combat → pre-departure → jump → production →
-  post-arrival → finish → report) is ongoing work.
+  `FH_SEED`) to emit reference `.dat`/`.txt`/`.log` outputs and player reports
+  under `testdata/cref/`. `fhc` must produce byte-identical results. Regenerate
+  with `make golden-ref`; run the parity tests with `make test-golden` (the
+  reference data is git-ignored).
+- Golden tests cover the **setup** phase (`galaxy_create_test.go`,
+  `species_create_test.go`, `templates_create_test.go`), binary record-size and
+  round-trip checks (`io_roundtrip_test.go`), the **full turn pipeline** over
+  four accumulating turns (`turn_pipeline_test.go`), and **hand-written-order
+  scenarios** (`scenario_test.go`: build, jump, transfer, combat) with committed
+  fixtures under `testdata/scenarios/<name>/`. Every artifact, including the
+  `sp0X.rpt.tN` reports, is diffed byte-for-byte.
+- For the **`fh`** engine, validate on report parity with `fhc` (see Strategy):
+  same seed + orders → byte-identical `sp0X.rpt.tN`.
 
 ## The idiomatic data store (`internal/data/store`)
 
