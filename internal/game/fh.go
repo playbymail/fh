@@ -56,7 +56,11 @@ func CommandRunner(argv []string) error {
 			}
 			return nil
 		} else if arg == "inspect" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			rv := inspectCommand(args)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else if arg == "jump" {
 			rv := jumpCommand(args)
 			if rv != 0 {

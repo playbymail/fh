@@ -56,6 +56,8 @@ cp "$EXAMPLES/species.cfg" .
 # version is state-independent too; it prints the engine version and exits 2
 # (a quirk of version.c), so guard the non-zero status against `set -e`.
 "$FH" version > version.log 2>&1 || true
+# inspect is state-independent; it prints a fixed table of C sizeof() values.
+"$FH" inspect > inspect.log 2>&1
 snapshot setup
 
 # --- turn1: locations, default orders, and the full turn pipeline ---
