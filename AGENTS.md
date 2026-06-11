@@ -73,6 +73,20 @@ Do not blur the two.
 - For the **`fh`** engine, validate on report parity with `fhc` (see Strategy):
   same seed + orders → byte-identical `sp0X.rpt.tN`.
 
+## The idiomatic `fh` engine
+
+`fh` is a clean rewrite, not a port. It need not mirror the C code's structure,
+layout, or naming — verbatim-C discipline applies only to `internal/game`. Write
+idiomatic Go whose report *output* matches `fhc`. **No package-level mutable
+globals**: hang game state off an **`Engine` struct** (`internal/engine` already
+has a `type Engine struct`) and thread it explicitly, rather than copying
+`internal/game`'s globals-plus-`ResetState()` pattern. Prefer building under
+`internal/engine` and new sibling packages — it is unused scaffolding (`fhc`
+imports none of it and is self-contained in `internal/game`, PRNG included), so
+it is yours to restructure. Hard limit: never change how `fhc` works — don't
+touch `internal/game`/`cmd/fhc`, and any RNG `fh` uses to *generate* state must
+reproduce `fhc`'s exact sequence (match it, don't alter it).
+
 ## The idiomatic data store (`internal/data/store`)
 
 The SQLite store lives behind the `Store` interface.

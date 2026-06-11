@@ -117,6 +117,21 @@ The reference data is git-ignored.
 
 ## Phase 2: the idiomatic SQLite store (`internal/data/store`)
 
+**`fh` is a clean rewrite, not a port.** It does not mirror the C code's
+structure, file layout, or naming — that verbatim-C discipline applies only to
+`internal/game`. Write idiomatic Go whose report *output* matches `fhc`.
+Crucially, **no package-level mutable globals**: `internal/game` mirrors the C
+engine's globals (and needs `ResetState()` to clear them between commands), but
+`fh` must not. Hang game state off an **`Engine` struct** (`internal/engine`,
+where a `type Engine struct` already exists) and thread it explicitly. Prefer
+building `fh`'s logic under `internal/engine` and new sibling packages —
+`internal/engine` is currently unused scaffolding (`fhc` imports none of it; the
+C-port engine is self-contained in `internal/game`, including its own PRNG in
+`prng.go`), so it is yours to restructure or replace. The one hard limit: never
+change how `fhc` works — don't touch `internal/game`/`cmd/fhc` behavior, and any
+RNG `fh` uses to *generate* state must reproduce `fhc`'s exact sequence (match
+it, don't alter it).
+
 Behind the `Store` interface.
 
 - **Validation = report parity with `fhc`.** Drive `fh` and `fhc` from the same
