@@ -9,12 +9,12 @@ import (
 )
 
 // TestVersionCommandMatchesC verifies the `version` command prints the C engine
-// version byte-for-byte and returns 2 (version.c returns 2 even on its success
-// path). version ignores game state, so no staging is needed.
+// version byte-for-byte and returns 0 on success (v7.5.12 changed the success
+// path from the historical `return 2` to `return 0`). version ignores game
+// state, so no staging is needed.
 //
-// We cannot use captureStdout here: it fails the test on a non-zero return, and
-// version's success path returns 2 by design. So capture stdout inline and
-// assert both the bytes and the return value.
+// Capture stdout inline and assert both the bytes and the return value, so the
+// v7.5.12 return-code change stays pinned.
 func TestVersionCommandMatchesC(t *testing.T) {
 	setupDir := refDir(t, "setup")
 	requireRef(t, setupDir)
@@ -39,8 +39,8 @@ func TestVersionCommandMatchesC(t *testing.T) {
 	got := <-done
 	_ = r.Close()
 
-	if rv != 2 {
-		t.Errorf("versionCommand returned %d, want 2 (version.c returns 2 on success)", rv)
+	if rv != 0 {
+		t.Errorf("versionCommand returned %d, want 0 (v7.5.12 returns 0 on success)", rv)
 	}
 
 	want, err := os.ReadFile(filepath.Join(setupDir, "version.log"))

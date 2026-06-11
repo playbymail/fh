@@ -7,16 +7,16 @@ import (
 
 // cEngineVersion is the version string printed by the C engine's `version`
 // command (version.c). It tracks the ../Far-Horizons target tag — currently
-// v7.5.11 — and MUST be bumped whenever that target version bumps. This is the
+// v7.5.12 — and MUST be bumped whenever that target version bumps. This is the
 // C engine's version, deliberately distinct from the Go port's own version
 // (see ../../version.go); the `version` command reproduces the C output, not
 // the Go port's release number.
-const cEngineVersion = "7.5.11"
+const cEngineVersion = "7.5.12"
 
 // versionCommand is a faithful port of version.c's versionCommand. It prints
-// the C engine version to stdout and returns 2. The C command returns 2 even
-// on the success path (a quirk of the original); --help/-h/-? and unknown
-// options also return 2 after writing usage/error text to stderr.
+// the C engine version to stdout and returns 0 on success (v7.5.12 changed the
+// success path from the historical `return 2` to `return 0`). --help/-h/-? and
+// unknown options return 2 after writing usage/error text to stderr.
 func versionCommand(args []string) int {
 	for i := 1; i < len(args); i++ {
 		opt, val, hasVal := splitOptVal(args[i])
@@ -26,6 +26,9 @@ func versionCommand(args []string) int {
 			fmt.Fprintf(os.Stderr, "       display version of this program\n")
 			return 2
 		} else {
+			// Mirrors version.c's `'%s%s%s'` with opt, (val ? "=" : ""), and
+			// (val ? val : "") — the v7.5.12 NULL-%s fix, which prints nothing
+			// (not "(null)") when there is no value.
 			if hasVal {
 				fmt.Fprintf(os.Stderr, "error: unknown option '%s=%s'\n", opt, val)
 			} else {
@@ -37,5 +40,5 @@ func versionCommand(args []string) int {
 
 	fmt.Printf("%s\n", cEngineVersion)
 
-	return 2
+	return 0
 }

@@ -85,9 +85,9 @@ func CommandRunner(argv []string) {
 		} else if arg == "update" {
 			runCommand(updateCommand(args))
 		} else if arg == "version" {
-			// versionCommand prints the engine version and returns 2 even on
-			// its success path (a quirk of version.c); runCommand turns that
-			// into the matching exit code 2, exactly as the C main() does.
+			// versionCommand prints the engine version and returns 0 on
+			// success (v7.5.12; the historical engine returned 2 here);
+			// runCommand exits with the matching code, as the C main() does.
 			runCommand(versionCommand(args))
 		} else {
 			fmt.Fprintf(os.Stderr, "fh: unknown option '%s'\n", arg)

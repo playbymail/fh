@@ -10,15 +10,21 @@ The authoritative C source is cloned at **`../Far-Horizons/`** (package
 `github.com/playbymail/Far-Horizons`). Consult it whenever porting — the goal of
 phase 1 is to match it exactly.
 
-**Target version: Far Horizons `v7.5.11`.** The golden reference data
+**Target version: Far Horizons `v7.5.12`.** The golden reference data
 (`testdata/cref/`) and every parity test are generated from that tag, so keep
-the `../Far-Horizons/` clone on `v7.5.11`. This release includes the
+the `../Far-Horizons/` clone on `v7.5.12`. This release fixes the
+`version`/`import` dispatcher argument offset in `fh.c` (the branches used
+`argv + 1` instead of the surrounding `argv + i`, so a preceding global flag
+like `fh -v version` misparsed the command token), fixes `versionCommand`'s
+unknown-option message passing a NULL `val` to `%s`, and changes
+`versionCommand`'s success path to `return 0` (was `return 2`) and its printed
+string to `7.5.12` — all mirrored in the Go port. It builds on v7.5.11's
 deterministic `max_tech_level` fix in `finish.c` (v7.5.10) plus a set of
 read-before-init fixes (`stats.c` `totalBankedEconUnits`, `do.c`
 `do_BUILD_command`'s `new_ship`, `command.c`/`combat.c` `best_species_index`
-guards, and removal of the `do_UNLOAD` `current_pop` dead store) — all mirrored
-in the Go port. If the maintainer adopts a newer upstream release, bump this
-version note and regenerate the goldens (`make golden-ref`) in the same change.
+guards, and removal of the `do_UNLOAD` `current_pop` dead store). If the
+maintainer adopts a newer upstream release, bump this version note and
+regenerate the goldens (`make golden-ref`) in the same change.
 
 ## Strategy: two phases, in order
 

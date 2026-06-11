@@ -5,7 +5,7 @@ import (
 )
 
 // Hardcoded C ABI sizes for the in-memory C structs and primitive types, as
-// reported by `fh inspect` on the reference build (../Far-Horizons, v7.5.11,
+// reported by `fh inspect` on the reference build (../Far-Horizons, v7.5.12,
 // the platform that generates the golden data). These have no faithful Go
 // equivalent: the Go ports of galaxy_data_t, star_data_t, etc. have a
 // different memory layout, so their unsafe.Sizeof would not match the C
