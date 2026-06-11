@@ -73,6 +73,14 @@ for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t1.ord; done
 "$FH" report > report.log 2>&1
 "$FH" stats > stats.log 2>&1
 "$FH" turn > turn.log 2>&1
+# list/show are read-only reports over the post-turn-1 state; capture a few
+# variants covering each output branch. list galaxy (default, with planets),
+# the wormhole branch, and the per-species scanned branch.
+"$FH" list galaxy > list_galaxy.log 2>&1
+"$FH" list galaxy --planets=false > list_galaxy_nopl.log 2>&1
+"$FH" list galaxy --wormholes=true > list_galaxy_worm.log 2>&1
+"$FH" list scanned --species=1 > list_scanned_sp1.log 2>&1
+"$FH" list scanned --species=2 > list_scanned_sp2.log 2>&1
 snapshot turn1
 
 # run_turn N runs one later turn (N >= 2) of the pipeline in the same

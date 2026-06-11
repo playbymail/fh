@@ -62,7 +62,11 @@ func CommandRunner(argv []string) error {
 			}
 			return nil
 		} else if arg == "list" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			rv := listCommand(args)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else if arg == "locations" {
 			rv := locationCommand(args)
 			if rv != 0 {
