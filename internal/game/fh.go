@@ -135,7 +135,17 @@ func CommandRunner(argv []string) error {
 			}
 			return nil
 		} else if arg == "version" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			// versionCommand prints the C engine version and returns 2 on
+			// its success path (a deliberate quirk of version.c). The C
+			// main() propagates that as the process exit code, so `fh
+			// version` exits 2. CommandRunner can only signal "non-zero" as
+			// an error here, so fhc currently exits 1 instead — see the
+			// known exit-code discrepancy noted in the port report.
+			rv := versionCommand(args)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else {
 			return fmt.Errorf("fh: unknown option '%s'\n", arg)
 		}

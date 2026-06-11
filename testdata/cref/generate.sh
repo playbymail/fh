@@ -53,6 +53,9 @@ cp "$EXAMPLES/species.cfg" .
 # logrnd is state-independent (it seeds from the historical default seed),
 # so capture it here once and keep it with the setup snapshot.
 "$FH" logrnd > logrnd.log 2>&1
+# version is state-independent too; it prints the engine version and exits 2
+# (a quirk of version.c), so guard the non-zero status against `set -e`.
+"$FH" version > version.log 2>&1 || true
 snapshot setup
 
 # --- turn1: locations, default orders, and the full turn pipeline ---
