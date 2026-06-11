@@ -59,19 +59,6 @@ func finishCommand(args []string) int {
 	var donor_species *species_data_t
 	var home_nampla *nampla_data_t
 
-	// max_tech_level is an uninitialized local in C (finish.c). It is only
-	// assigned inside the experience_points != 0 branch of the tech-increase
-	// loop; when a species has spent no research (experience_points == 0) the
-	// loop does `goto check_random` and the clamp
-	//   if (new_tech_level > max_tech_level) new_tech_level = max_tech_level;
-	// reads whatever stale value max_tech_level last held. On the reference
-	// build that residual stack value is small, so the clamp cancels the
-	// random 1-in-6 tech bump (`old_tech_level > 0 && rnd(6) == 6`) — i.e. a
-	// species with no research gets no random tech increase. Go's zero value
-	// of 0 reproduces that clamping exactly, so we deliberately leave
-	// max_tech_level at 0 here rather than seeding a "no limit" value.
-	max_tech_level = 0
-
 	/* Get commonly used data. */
 	get_galaxy_data()
 	get_planet_data()
@@ -404,6 +391,12 @@ func finishCommand(args []string) int {
 			old_tech_level = species.tech_level[tech]
 			new_tech_level = old_tech_level
 
+			/* No cap unless heavy research below sets one. This must be
+			 * initialized before the experience_points == 0 short-circuit so the
+			 * private-sector 1-in-6 increase (see doc/rules: a tech level can rise
+			 * without spending funds on research) is never clamped by stale data. */
+			max_tech_level = 9999
+
 			experience_points = species.tech_eps[tech]
 			if experience_points == 0 {
 				goto check_random
@@ -420,8 +413,6 @@ func finishCommand(args []string) int {
 				/* When extremely large amounts are spent on research, tech level increases are sometimes excessive.  Set a limit. */
 				if old_tech_level > 50 {
 					max_tech_level = j + 1
-				} else {
-					max_tech_level = 9999
 				}
 
 				/* Allocate half of the calculated increase NON-RANDOMLY. */
