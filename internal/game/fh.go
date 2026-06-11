@@ -5,11 +5,27 @@ import (
 	"os"
 )
 
-func CommandRunner(argv []string) error {
+// CommandRunner is a faithful port of fh.c's main() dispatcher. It dispatches
+// to the selected command and terminates the process with the C engine's exit
+// code. main() simply calls this and lets the process exit normally on the
+// help paths (which the C main() returns showHelp()==0 for).
+func CommandRunner(argv []string) {
 	argc := len(argv)
 	if argc == 1 {
 		showHelp()
-		return nil
+		return
+	}
+
+	// runCommand terminates the process with the C engine's exit code for a
+	// dispatched command: 0 on success, 2 on any error. This mirrors fh.c's
+	// `return cmd(argc - i, argv + i)` — the C main() exits with the command's
+	// return value, which is always 0 or 2. Errors are reported by the command
+	// itself (to stderr), so there is nothing more to print here.
+	runCommand := func(rv int) {
+		if rv != 0 {
+			os.Exit(2)
+		}
+		os.Exit(0)
 	}
 
 	for i := 1; i < argc; i++ {
@@ -20,149 +36,64 @@ func CommandRunner(argv []string) error {
 
 		if arg == "?" || arg == "-?" || arg == "--help" {
 			showHelp()
-			return nil
+			return
 		} else if arg == "-t" {
 			test_mode = TRUE
 		} else if arg == "-v" {
 			verbose_mode = TRUE
 		} else if arg == "combat" {
-			rv := combatCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(combatCommand(args))
 		} else if arg == "create" {
-			rv := createCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(createCommand(args))
 		} else if arg == "export" {
-			rv := exportCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(exportCommand(args))
 		} else if arg == "finish" {
-			rv := finishCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(finishCommand(args))
 		} else if arg == "import" {
-			rv := importCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(importCommand(args))
 		} else if arg == "inspect" {
-			rv := inspectCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(inspectCommand(args))
 		} else if arg == "jump" {
-			rv := jumpCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(jumpCommand(args))
 		} else if arg == "list" {
-			rv := listCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(listCommand(args))
 		} else if arg == "locations" {
-			rv := locationCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(locationCommand(args))
 		} else if arg == "logrnd" {
 			// Mirrors C engine.c logRandomCommand; the Go port writes to
 			// an io.Writer for testability, so pass os.Stdout here. The C
 			// command ignores its args and always returns 0.
-			rv := logRandomCommand(os.Stdout)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(logRandomCommand(os.Stdout))
 		} else if arg == "post-arrival" {
-			rv := postArrivalCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(postArrivalCommand(args))
 		} else if arg == "pre-departure" {
-			rv := preDepartureCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(preDepartureCommand(args))
 		} else if arg == "production" {
-			rv := productionCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(productionCommand(args))
 		} else if arg == "report" {
-			rv := reportCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(reportCommand(args))
 		} else if arg == "scan" {
-			rv := scanCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(scanCommand(args))
 		} else if arg == "scan-near" {
-			rv := scanNearCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(scanNearCommand(args))
 		} else if arg == "show" {
-			rv := showCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(showCommand(args))
 		} else if arg == "stats" {
-			rv := statsCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(statsCommand(args))
 		} else if arg == "turn" {
-			rv := turnCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(turnCommand(args))
 		} else if arg == "update" {
-			rv := updateCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			runCommand(updateCommand(args))
 		} else if arg == "version" {
-			// versionCommand prints the C engine version and returns 2 on
-			// its success path (a deliberate quirk of version.c). The C
-			// main() propagates that as the process exit code, so `fh
-			// version` exits 2. CommandRunner can only signal "non-zero" as
-			// an error here, so fhc currently exits 1 instead — see the
-			// known exit-code discrepancy noted in the port report.
-			rv := versionCommand(args)
-			if rv != 0 {
-				return fmt.Errorf("fh: %s: exit %d", arg, rv)
-			}
-			return nil
+			// versionCommand prints the engine version and returns 2 even on
+			// its success path (a quirk of version.c); runCommand turns that
+			// into the matching exit code 2, exactly as the C main() does.
+			runCommand(versionCommand(args))
 		} else {
-			return fmt.Errorf("fh: unknown option '%s'\n", arg)
+			fmt.Fprintf(os.Stderr, "fh: unknown option '%s'\n", arg)
+			os.Exit(2)
 		}
 	}
-	return fmt.Errorf("fh: try `fh --help` for instructions")
+	fmt.Fprintf(os.Stdout, "fh: try `fh --help` for instructions\n")
+	os.Exit(2)
 }

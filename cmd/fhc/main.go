@@ -2,15 +2,14 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/playbymail/fh/internal/game"
 )
 
 func main() {
-	if err := game.CommandRunner(os.Args); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	// CommandRunner dispatches the command and terminates the process with the
+	// C engine's exit code (0 on success, 2 on any error); the help paths
+	// return here and the process exits 0 normally.
+	game.CommandRunner(os.Args)
 }
