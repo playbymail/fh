@@ -30,7 +30,7 @@ version:
 test:
 	go test ./...
 
-# Run the C-parity golden tests (setup + turn-1 pipeline). These compare
+# Run the C-parity golden tests (setup + turns 1-4 pipeline). These compare
 # the Go port's output byte-for-byte against the C reference data in
 # testdata/cref; they skip automatically if that data has not been
 # generated (see golden-ref).
@@ -58,7 +58,7 @@ help:
 	@echo "  build-fhc         Build byte-faithful C-port runner to dist/local/fhc"
 	@echo "  version           Run version command"
 	@echo "  test              Run all tests"
-	@echo "  test-golden       Run the C-parity golden tests (setup + turn 1)"
+	@echo "  test-golden       Run the C-parity golden tests (setup + turns 1-4)"
 	@echo "  golden-ref        Regenerate C reference data (needs C engine)"
 	@echo "  tidy              Run 'go mod tidy'"
 	@echo "  golden-rng        Rebuild golden RNG test files"

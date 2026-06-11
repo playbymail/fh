@@ -11,6 +11,8 @@
 #   setup/   galaxy + templates + species, before any turn
 #   turn1/   after locations, default orders, and a full turn 1 pipeline
 #   turn2/   after a second turn (orders regenerated) from the turn1 state
+#   turn3/   after a third turn, continuing the same run directory
+#   turn4/   after a fourth turn, continuing the same run directory
 #
 # Override the engine path with FH=/path/to/fh. The reference data is
 # git-ignored (see testdata/.gitignore); run this to (re)create it locally.
@@ -67,23 +69,34 @@ for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t1.ord; done
 "$FH" turn > turn.log 2>&1
 snapshot turn1
 
-# --- turn2: regenerate default orders and run the pipeline again ---
-# combat (etc.) do not consume sp0X.ord, so remove the turn-1 orders to
-# force `create orders` to regenerate fresh defaults from the turn-1 state.
-rm -f sp01.ord sp02.ord sp03.ord sp04.ord
-"$FH" create orders > create_orders.t2.log 2>&1
-for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t2.ord; done
+# run_turn N runs one later turn (N >= 2) of the pipeline in the same
+# accumulating work directory, then snapshots it into turnN/. The combat
+# (etc.) phases do not consume sp0X.ord, so the previous turn's orders are
+# removed first to force `create orders` to regenerate fresh defaults from
+# the current state. Command order matches turn 1 except that `create
+# orders` runs before `locations` (turn 1 generated locations from setup
+# before any orders existed). Logs/locations/transactions accumulate.
+run_turn() {
+	n=$1
+	rm -f sp01.ord sp02.ord sp03.ord sp04.ord
+	"$FH" create orders > create_orders.t$n.log 2>&1
+	for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t$n.ord; done
 
-"$FH" locations > locations.t2.log 2>&1
-"$FH" combat > combat.t2.log 2>&1
-"$FH" pre-departure > predeparture.t2.log 2>&1
-"$FH" jump > jump.t2.log 2>&1
-"$FH" production > production.t2.log 2>&1
-"$FH" post-arrival > postarrival.t2.log 2>&1
-"$FH" finish > finish.t2.log 2>&1
-"$FH" report > report.t2.log 2>&1
-"$FH" stats > stats.t2.log 2>&1
-"$FH" turn > turn.t2.log 2>&1
-snapshot turn2
+	"$FH" locations > locations.t$n.log 2>&1
+	"$FH" combat > combat.t$n.log 2>&1
+	"$FH" pre-departure > predeparture.t$n.log 2>&1
+	"$FH" jump > jump.t$n.log 2>&1
+	"$FH" production > production.t$n.log 2>&1
+	"$FH" post-arrival > postarrival.t$n.log 2>&1
+	"$FH" finish > finish.t$n.log 2>&1
+	"$FH" report > report.t$n.log 2>&1
+	"$FH" stats > stats.t$n.log 2>&1
+	"$FH" turn > turn.t$n.log 2>&1
+	snapshot turn$n
+}
 
-echo "reference data written to $HERE/{galaxy,setup,turn1,turn2}"
+run_turn 2
+run_turn 3
+run_turn 4
+
+echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4}"

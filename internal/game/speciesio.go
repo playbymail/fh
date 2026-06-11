@@ -4,9 +4,9 @@ package game
 // Each species file contains one species record followed by its nampla
 // records (namplaio.go) and then its ship records (shipio.go).
 //
-// Skipped (JSON/S-expression exporters): speciesDataAsJson,
-// speciesDataAsSExpr. Because speciesDataAsSExpr is skipped, the
-// "species%03d.txt" snapshot the C saveSpeciesData writes is not
+// Skipped (JSON exporter): speciesDataAsJson. The s-expression exporter
+// speciesDataAsSExpr (ported in create.go) is called from saveSpeciesData
+// below, so the "species%03d.txt" snapshot the C saveSpeciesData writes is
 // produced by this port.
 
 import (
@@ -226,6 +226,11 @@ func saveSpeciesData(sp *species_data_t, colonies []*nampla_data_t, ships []*shi
 	// save ships data
 	save_ship_data(ships, sp.num_ships, fp)
 
-	// NOTE: the C engine writes a "species%03d.txt" s-expression snapshot
-	// here via speciesDataAsSExpr; that exporter is not ported yet.
+	// The C saveSpeciesData (speciesio.c) also writes a "species%03d.txt"
+	// s-expression snapshot for every species record it saves.
+	filename := fmt.Sprintf("species%03d.txt", sp.id)
+	if f, err := os.Create(filename); err == nil {
+		speciesDataAsSExpr(sp, f)
+		f.Close()
+	}
 }

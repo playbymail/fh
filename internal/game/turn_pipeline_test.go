@@ -39,10 +39,11 @@ func turnTail() []pipelineStep {
 // artifacts byte-for-byte against the C reference in testdata/cref/turn1
 // (produced by testdata/cref/generate.sh).
 //
-// Only disk artifacts are compared. The combat.log/jump.log-style files in
-// the reference set are captured stdout from generate.sh and are out of
-// scope here; the meaningful byte-faithful outputs are the binary .dat
-// state, the generated .ord orders, and the per-species .rpt reports.
+// Only disk artifacts are compared (see turnArtifacts for the full set: the
+// binary .dat game/species/transaction state, the species%03d.txt
+// s-expression snapshots, the generated .ord orders, and the per-species
+// .rpt reports). The combat.log/jump.log-style files in the reference set are
+// captured stdout from generate.sh and are out of scope here.
 func TestTurnPipelineMatchesC(t *testing.T) {
 	setupDir, turn1Dir := refDir(t, "setup"), refDir(t, "turn1")
 	requireRef(t, turn1Dir)
@@ -63,54 +64,96 @@ func TestTurnPipelineMatchesC(t *testing.T) {
 }
 
 // TestTurnTwoPipelineMatchesC continues from the turn-1 state into a second
-// turn and compares the turn-2 artifacts against testdata/cref/turn2. It runs
-// turn 1 first (in the same working directory) so every intermediate file —
-// accumulated species logs, locations, transactions — is produced naturally,
-// exactly as the C engine does in generate.sh's accumulating run directory.
+// turn and compares the turn-2 artifacts against testdata/cref/turn2.
 //
 // Turn 2 exercises code paths turn 1 does not: the `turn_number != 1`
 // branches in finish/report and the "EVENT LOG FOR TURN" report handling.
-func TestTurnTwoPipelineMatchesC(t *testing.T) {
-	setupDir, turn1Dir, turn2Dir := refDir(t, "setup"), refDir(t, "turn1"), refDir(t, "turn2")
-	requireRef(t, turn2Dir)
+func TestTurnTwoPipelineMatchesC(t *testing.T) { runMultiTurnPipeline(t, 2) }
+
+// TestTurnThreePipelineMatchesC and TestTurnFourPipelineMatchesC continue the
+// same accumulating run into turns 3 and 4, catching multi-turn drift that
+// only appears once several later-turn pipelines have chained their state.
+func TestTurnThreePipelineMatchesC(t *testing.T) { runMultiTurnPipeline(t, 3) }
+func TestTurnFourPipelineMatchesC(t *testing.T)  { runMultiTurnPipeline(t, 4) }
+
+// runMultiTurnPipeline stages the post-setup state, runs turn 1 followed by
+// every later turn up to lastTurn in the same working directory — so every
+// intermediate file (accumulated species logs, locations, transactions) is
+// produced naturally, exactly as the C engine does in generate.sh's
+// accumulating run directory — then compares the lastTurn artifacts against
+// testdata/cref/turn{lastTurn}.
+func runMultiTurnPipeline(t *testing.T, lastTurn int) {
+	t.Helper()
+	setupDir, turn1Dir := refDir(t, "setup"), refDir(t, "turn1")
+	lastDir := refDir(t, fmt.Sprintf("turn%d", lastTurn))
+	requireRef(t, lastDir)
 
 	t.Setenv("FH_SEED", "1924085713")
 	t.Chdir(t.TempDir())
 	stagePostSetupState(t, setupDir, turn1Dir)
 	silenceStdio(t)
 
-	// Turn 1 (produces the starting state for turn 2).
+	// Turn 1: locations runs before create orders (no orders exist yet).
 	turn1 := append([]pipelineStep{
 		{"locations", func() int { return locationCommand([]string{"locations"}) }},
 		{"create orders", func() int { return createOrdersCommand([]string{"orders"}) }},
 	}, turnTail()...)
 	runSteps(t, turn1)
 
-	// The phases do not consume sp0X.ord, so remove the turn-1 orders to
-	// force `create orders` to regenerate fresh defaults from the turn-1
-	// state (mirrors the `rm` in generate.sh).
-	for n := 1; n <= 4; n++ {
-		if err := os.Remove(fmt.Sprintf("sp%02d.ord", n)); err != nil {
-			t.Fatalf("remove turn-1 orders: %v", err)
-		}
+	// Later turns: each regenerates fresh default orders from the previous
+	// turn's state, then runs the pipeline, mirroring run_turn in generate.sh.
+	for turn := 2; turn <= lastTurn; turn++ {
+		runLaterTurn(t)
 	}
 
-	// Turn 2.
-	turn2 := append([]pipelineStep{
+	compareOutputs(t, lastDir, turnArtifacts(lastTurn), nil)
+}
+
+// runLaterTurn runs one turn >= 2 of the pipeline. The phases do not consume
+// sp0X.ord, so the previous turn's orders are removed first to force
+// `create orders` to regenerate fresh defaults from the current state
+// (mirrors the `rm` in generate.sh). create orders runs before locations.
+func runLaterTurn(t *testing.T) {
+	t.Helper()
+	for n := 1; n <= 4; n++ {
+		if err := os.Remove(fmt.Sprintf("sp%02d.ord", n)); err != nil {
+			t.Fatalf("remove prior-turn orders: %v", err)
+		}
+	}
+	steps := append([]pipelineStep{
 		{"create orders", func() int { return createOrdersCommand([]string{"orders"}) }},
 		{"locations", func() int { return locationCommand([]string{"locations"}) }},
 	}, turnTail()...)
-	runSteps(t, turn2)
-
-	compareOutputs(t, turn2Dir, turnArtifacts(2), nil)
+	runSteps(t, steps)
 }
 
 // turnArtifacts is the list of disk artifacts a turn pipeline produces, for
 // the given turn number (reports are named sp0X.rpt.tN).
+//
+// These are the real on-disk files the turn pipeline writes or updates:
+//   - galaxy.dat / planets.dat / stars.dat: shared game state.
+//   - locations.dat: the species-location index (locations phase).
+//   - interspecies.dat: the inter-species transaction log (save_transaction_data).
+//   - sp0X.dat: each species' binary record (combat..finish via saveSpeciesData).
+//   - species00X.txt: the s-expression snapshot saveSpeciesData writes alongside
+//     each sp0X.dat (last phase to modify a species wins).
+//   - sp0X.ord: the regenerated default orders (create orders).
+//   - sp0X.rpt.tN: the per-species turn report (report phase).
+//
+// The galaxy.hs.txt / stars.hs.txt / planets.hs.txt s-expression exports are
+// written only by the setup `create` commands, not the turn pipeline, so they
+// are out of scope here. The combat.log/jump.log-style files in the reference
+// set are captured stdout from generate.sh, also out of scope.
 func turnArtifacts(turn int) []string {
-	out := []string{"galaxy.dat", "planets.dat", "locations.dat"}
+	out := []string{
+		"galaxy.dat", "planets.dat", "stars.dat",
+		"locations.dat", "interspecies.dat",
+	}
 	for n := 1; n <= 4; n++ {
-		out = append(out, fmt.Sprintf("sp%02d.dat", n), fmt.Sprintf("sp%02d.ord", n))
+		out = append(out,
+			fmt.Sprintf("sp%02d.dat", n),
+			fmt.Sprintf("species%03d.txt", n),
+			fmt.Sprintf("sp%02d.ord", n))
 	}
 	for n := 1; n <= 4; n++ {
 		out = append(out, fmt.Sprintf("sp%02d.rpt.t%d", n, turn))

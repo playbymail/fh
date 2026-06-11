@@ -680,28 +680,9 @@ func createSpeciesCommand(args []string) int {
 	planetDataAsSExpr(planet_base, num_planets, fp)
 	fp.Close()
 
-	// The C saveSpeciesData (speciesio.c) also writes a "species%03d.txt"
-	// s-expression snapshot for every species record it saves; the Go
-	// saveSpeciesData in speciesio.go skips that exporter, so record which
-	// species are about to be saved (save_species_data clears the
-	// data_modified flags) and write the snapshots here.
-	var snapshot [MAX_SPECIES]bool
-	for spidx := 0; spidx < galaxy.num_species; spidx++ {
-		snapshot[spidx] = data_in_memory[spidx] != FALSE && data_modified[spidx] != FALSE
-	}
-
+	// save_species_data writes each species' sp%02d.dat record and the
+	// "species%03d.txt" s-expression snapshot (via saveSpeciesData).
 	save_species_data()
-
-	for spidx := 0; spidx < galaxy.num_species; spidx++ {
-		if snapshot[spidx] {
-			filename := fmt.Sprintf("species%03d.txt", spec_data[spidx].id)
-			fp, err := os.Create(filename)
-			if err == nil {
-				speciesDataAsSExpr(&spec_data[spidx], fp)
-				fp.Close()
-			}
-		}
-	}
 
 	return 0
 }
