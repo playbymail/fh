@@ -8,7 +8,8 @@ import (
 func CommandRunner(argv []string) error {
 	argc := len(argv)
 	if argc == 1 {
-		return fmt.Errorf("fh: showHelp()")
+		showHelp()
+		return nil
 	}
 
 	for i := 1; i < argc; i++ {
@@ -18,7 +19,8 @@ func CommandRunner(argv []string) error {
 		arg, args := argv[i], argv[i:]
 
 		if arg == "?" || arg == "-?" || arg == "--help" {
-			return fmt.Errorf("fh: showHelp()")
+			showHelp()
+			return nil
 		} else if arg == "-t" {
 			test_mode = TRUE
 		} else if arg == "-v" {
@@ -119,7 +121,11 @@ func CommandRunner(argv []string) error {
 			}
 			return nil
 		} else if arg == "show" {
-			return fmt.Errorf("fh: %s: not implemented", arg)
+			rv := showCommand(args)
+			if rv != 0 {
+				return fmt.Errorf("fh: %s: exit %d", arg, rv)
+			}
+			return nil
 		} else if arg == "stats" {
 			rv := statsCommand(args)
 			if rv != 0 {

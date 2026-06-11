@@ -81,6 +81,14 @@ for sp in 01 02 03 04; do cp sp$sp.ord sp$sp.t1.ord; done
 "$FH" list galaxy --wormholes=true > list_galaxy_worm.log 2>&1
 "$FH" list scanned --species=1 > list_scanned_sp1.log 2>&1
 "$FH" list scanned --species=2 > list_scanned_sp2.log 2>&1
+# show: game-value queries, the ASCII map, the paged map (also writes
+# galaxy.map, preserved as show_galaxy.map for the file-comparison test), and
+# the help text.
+"$FH" show num_stars num_species num_planets num_natural_wormholes radius d_num_species turn_number > show_values.log 2>&1
+"$FH" show galaxy --ascii > show_galaxy_ascii.log 2>&1
+"$FH" show galaxy > show_galaxy.log 2>&1
+cp galaxy.map show_galaxy.map
+"$FH" show help > show_help.log 2>&1
 snapshot turn1
 
 # run_turn N runs one later turn (N >= 2) of the pipeline in the same
