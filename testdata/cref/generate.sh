@@ -169,6 +169,49 @@ run_scenario() {
 	cd "$WORK"
 }
 
-run_scenario build
+# run_scenario_multi runs an N-turn hand-order scenario. Like run_scenario it
+# starts from a fresh post-setup state, but it runs $2 turns: each turn k runs
+# locations, drops in the committed orders from testdata/scenarios/<name>/tk/,
+# and runs the combat..report tail plus stats/turn. Per-turn logs are suffixed
+# .tk; the final-turn state is snapshotted into testdata/cref/<name>/. Used by
+# scenarios that need an earlier turn to set up state the later turn acts on
+# (e.g. build a ship in t1, jump it in t2 — ships start under construction and
+# jump runs before production, so a freshly built ship cannot jump same turn).
+run_scenario_multi() {
+	name=$1
+	nturns=$2
+	sdir="$WORK/scenario_$name"
+	rm -rf "$sdir"
+	mkdir -p "$sdir"
+	cp "$HERE/setup/galaxy.dat" "$HERE/setup/stars.dat" "$HERE/setup/planets.dat" "$sdir/"
+	for sp in 01 02 03 04; do
+		cp "$HERE/setup/sp$sp.dat" "$HERE/setup/sp$sp.log" "$sdir/"
+	done
+	cd "$sdir"
 
-echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4,build}"
+	k=1
+	while [ "$k" -le "$nturns" ]; do
+		"$FH" locations > locations.t$k.log 2>&1
+		for sp in 01 02 03 04; do cp "$SCENARIOS/$name/t$k/sp$sp.ord" "$sdir/sp$sp.ord"; done
+		"$FH" combat > combat.t$k.log 2>&1
+		"$FH" pre-departure > predeparture.t$k.log 2>&1
+		"$FH" jump > jump.t$k.log 2>&1
+		"$FH" production > production.t$k.log 2>&1
+		"$FH" post-arrival > postarrival.t$k.log 2>&1
+		"$FH" finish > finish.t$k.log 2>&1
+		"$FH" report > report.t$k.log 2>&1
+		"$FH" stats > stats.t$k.log 2>&1
+		"$FH" turn > turn.t$k.log 2>&1
+		k=$((k + 1))
+	done
+
+	rm -rf "$HERE/$name"
+	mkdir -p "$HERE/$name"
+	cp "$sdir"/* "$HERE/$name/"
+	cd "$WORK"
+}
+
+run_scenario build
+run_scenario_multi jump 2
+
+echo "reference data written to $HERE/{galaxy,setup,turn1,turn2,turn3,turn4,build,jump}"
