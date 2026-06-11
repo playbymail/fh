@@ -3,7 +3,10 @@
 We are porting the classic play-by-mail game Far Horizons from C to Go.
 
 Note that `../Far-Horizons/` contains a clone of the github.com/playbymail/Far-Horizons
-repository — the authoritative C source. Always consult it when porting.
+repository — the authoritative C source. Always consult it when porting. We are
+porting **Far Horizons v7.5.10** (the `v7.5.10` tag); the golden reference data
+and parity tests are generated from that release. When updating the C clone,
+stay on v7.5.10 unless the maintainer bumps the target version here.
 
 > The canonical, detailed guidance lives in **CLAUDE.md**. This file is the
 > short Amp-facing summary; CLAUDE.md and this file must agree.

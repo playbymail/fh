@@ -10,6 +10,13 @@ The authoritative C source is cloned at **`../Far-Horizons/`** (package
 `github.com/playbymail/Far-Horizons`). Consult it whenever porting — the goal of
 phase 1 is to match it exactly.
 
+**Target version: Far Horizons `v7.5.10`.** The golden reference data
+(`testdata/cref/`) and every parity test are generated from that tag, so keep
+the `../Far-Horizons/` clone on `v7.5.10` (it includes the deterministic
+`max_tech_level` fix in `finish.c`). If the maintainer adopts a newer upstream
+release, bump this version note and regenerate the goldens (`make golden-ref`)
+in the same change.
+
 ## Strategy: two phases, in order
 
 1. **Byte-faithful C port first** — `internal/game`, run by the `cmd/fhc` binary.
