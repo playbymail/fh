@@ -3,43 +3,26 @@ package store
 
 import (
 	"context"
-	"io"
 
 	"github.com/playbymail/fh/internal/model"
 )
 
-// Store is the interface for game data persistence.
-// Implementations can be JSON files, SQLite, etc.
+// Store is the interface every game-data backend implements. It is
+// deliberately small: the whole game World is loaded and saved as a unit, so
+// the report renderer is agnostic to whether the backing store is binary .dat
+// files, JSON files, or SQLite. Backends are constructed through Open / Create
+// (see factory.go), which resolve the backend from a game directory's
+// far-horizons.json config.
+//
+// Backend-specific operations (SQLite schema versioning, turn/snapshot/order
+// tables, etc.) are NOT part of this interface; they remain concrete methods on
+// the implementations that support them.
 type Store interface {
-	// Schema management
-	GetSchemaVersion(ctx context.Context) (string, error)
-	UpgradeSchema(ctx context.Context) error
-
-	// Domain world (the fh engine's structured game state)
+	// IngestWorld persists a complete game World, replacing any prior state.
 	IngestWorld(ctx context.Context, gameID string, w *model.World) error
+	// LoadWorld reads the complete game World back into memory.
 	LoadWorld(ctx context.Context, gameID string) (*model.World, error)
-
-	// Game management
-	CreateGame(ctx context.Context, id, name string) error
-	GetGame(ctx context.Context, id string) (*Game, error)
-
-	// Turn management
-	CreateTurn(ctx context.Context, gameID string, turnNum int, phase string) error
-	GetCurrentTurn(ctx context.Context, gameID string) (*Turn, error)
-
-	// World snapshots
-	SaveSnapshot(ctx context.Context, gameID string, turnNum int, entities []Entity) error
-	LoadSnapshot(ctx context.Context, gameID string, turnNum int) ([]Entity, error)
-
-	// Orders
-	SaveOrders(ctx context.Context, gameID string, turnNum int, actor string, orders []Order) error
-	GetOrders(ctx context.Context, gameID string, turnNum int, actor string) ([]Order, error)
-
-	// Reports
-	SaveReport(ctx context.Context, gameID string, turnNum int, actor string, mime string, body io.Reader) error
-	GetReport(ctx context.Context, gameID string, turnNum int, actor string, mime string) (io.ReadCloser, error)
-
-	// Close the store
+	// Close releases any resources held by the store.
 	Close() error
 }
 

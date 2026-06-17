@@ -1,5 +1,12 @@
 # SQLite Migration System
 
+> **Scope: SQLite store only.** This document describes schema migrations for
+> the SQLite (`sqlite`) data store backend exclusively. The `binary` (.dat) and
+> `json` data stores serialize `model.World` to fixed, well-defined file formats
+> and have **no migration system** — nothing here applies to them. If we are
+> ever required to version or migrate the binary or JSON formats, we'll add
+> their own documentation (and update this note).
+
 ## Overview
 
 The store package uses [`zombiezen.com/go/sqlite/sqlitemigration`](https://pkg.go.dev/zombiezen.com/go/sqlite/sqlitemigration)

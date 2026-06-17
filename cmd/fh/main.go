@@ -68,7 +68,6 @@ func buildSubcommands(rootFlags *ff.FlagSet) []*ff.Command {
 		newCreateCmd(rootFlags),
 		newExportCmd(rootFlags),
 		newImportCmd(rootFlags),
-		newInitCmd(rootFlags),
 		stub(rootFlags, "inspect", "fh inspect", "Inspect game state"),
 		stub(rootFlags, "list", "fh list", "List game elements"),
 		newRunCmd(rootFlags),
@@ -122,6 +121,7 @@ func newCreateCmd(rootFlags *ff.FlagSet) *ff.Command {
 		ShortHelp: "Create new game elements",
 		Flags:     createFlags,
 		Subcommands: []*ff.Command{
+			newCreateGameCmd(createFlags),
 			galaxyCmd,
 			stub(createFlags, "home-system-templates", "fh create home-system-templates", "Create home system templates"),
 			stub(createFlags, "locations", "fh create locations", "Create locations data file and update economic efficiency in planets data file"),
@@ -136,21 +136,20 @@ func newExportCmd(rootFlags *ff.FlagSet) *ff.Command {
 	exportFlags := ff.NewFlagSet("export").SetParent(rootFlags)
 
 	snapshotFlags := ff.NewFlagSet("snapshot").SetParent(exportFlags)
-	storePath := snapshotFlags.StringLong("store", "", "Path to SQLite store")
-	_ = snapshotFlags.StringLong("game", "", "Game ID")
+	path := snapshotFlags.StringLong("path", "", "Path to the game directory")
 	_ = snapshotFlags.IntLong("turn", 0, "Turn number")
 	_ = snapshotFlags.StringLong("output", "", "Output directory for JSON files")
 	snapshotCmd := &ff.Command{
 		Name:      "snapshot",
-		Usage:     "fh export snapshot --store PATH --game ID --turn N --output DIR",
+		Usage:     "fh export snapshot --path GAMEDIR --turn N --output DIR",
 		ShortHelp: "Export a game snapshot to JSON",
 		Flags:     snapshotFlags,
 		Exec: func(ctx context.Context, args []string) error {
-			if err := requireFlags(snapshotFlags, "store", "game", "turn", "output"); err != nil {
+			if err := requireFlags(snapshotFlags, "path", "turn", "output"); err != nil {
 				return err
 			}
 
-			st, err := store.OpenSQLiteStore(*storePath)
+			st, err := store.Open(ctx, *path)
 			if err != nil {
 				return fmt.Errorf("open store: %w", err)
 			}
@@ -166,43 +165,6 @@ func newExportCmd(rootFlags *ff.FlagSet) *ff.Command {
 		ShortHelp:   "Export game data to JSON for testing",
 		Flags:       exportFlags,
 		Subcommands: []*ff.Command{snapshotCmd},
-	}
-}
-
-// newInitCmd builds the "init" command and its subcommands.
-func newInitCmd(rootFlags *ff.FlagSet) *ff.Command {
-	initFlags := ff.NewFlagSet("init").SetParent(rootFlags)
-
-	gameFlags := ff.NewFlagSet("game").SetParent(initFlags)
-	path := gameFlags.StringLong("path", ".", "Path to the data store")
-	_ = gameFlags.StringLong("id", "", "Game ID")
-	force := gameFlags.BoolLong("force", "Force overwriting existing store")
-	gameCmd := &ff.Command{
-		Name:      "game",
-		Usage:     "fh init game --id ID [flags]",
-		ShortHelp: "Initialize the data store for a new game",
-		Flags:     gameFlags,
-		Exec: func(ctx context.Context, args []string) error {
-			if err := requireFlags(gameFlags, "id"); err != nil {
-				return err
-			}
-
-			st, err := store.NewSQLiteStore(*path, *force)
-			if err != nil {
-				return fmt.Errorf("initialize store: %w", err)
-			}
-			defer st.Close()
-
-			return nil
-		},
-	}
-
-	return &ff.Command{
-		Name:        "init",
-		Usage:       "fh init <subcommand>",
-		ShortHelp:   "Initialize commands",
-		Flags:       initFlags,
-		Subcommands: []*ff.Command{gameCmd},
 	}
 }
 
