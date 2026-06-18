@@ -100,3 +100,60 @@ func TestScriptCommandFailingScript(t *testing.T) {
 		t.Errorf("failing script returned %d, want 2", rv)
 	}
 }
+
+// runSandboxScript runs a Lua body under the --gm scope and returns the exit
+// code. The sandbox tests below each write a script that error()s when a global
+// they expect to be nil is in fact present, so a leak surfaces as exit code 2.
+func runSandboxScript(t *testing.T, body string) int {
+	t.Helper()
+	ResetState()
+	dataRoot := t.TempDir()
+	script := writeScript(t, body)
+	return scriptCommand([]string{"script", "--data-root=" + dataRoot, "--gm", script})
+}
+
+// TestScriptSandboxDangerousGlobalsAbsent checks security layer 1 (#40): the
+// filesystem/OS/introspection libraries and the code-loading globals are absent
+// in the sandboxed interpreter. Each script returns 0 only if the global is
+// nil, and exit 2 (via error()) if it leaked.
+func TestScriptSandboxDangerousGlobalsAbsent(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"os", `if os ~= nil then error("os leaked") end`},
+		{"io", `if io ~= nil then error("io leaked") end`},
+		{"debug", `if debug ~= nil then error("debug leaked") end`},
+		{"require", `if require ~= nil then error("require leaked") end`},
+		{"load", `if load ~= nil then error("load leaked") end`},
+		{"loadfile", `if loadfile ~= nil then error("loadfile leaked") end`},
+		{"loadstring", `if loadstring ~= nil then error("loadstring leaked") end`},
+		{"dofile", `if dofile ~= nil then error("dofile leaked") end`},
+		{"math.random", `if math.random ~= nil then error("math.random leaked") end`},
+		{"math.randomseed", `if math.randomseed ~= nil then error("math.randomseed leaked") end`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if rv := runSandboxScript(t, tc.body); rv != 0 {
+				t.Errorf("sandbox script for %s returned %d, want 0 (global should be nil)", tc.name, rv)
+			}
+		})
+	}
+}
+
+// TestScriptSandboxAllowedLibsWork is the positive control: the pure libraries
+// we deliberately keep (base print, string, table, math) must still be
+// callable. A failure here would mean the sandbox stripped too much.
+func TestScriptSandboxAllowedLibsWork(t *testing.T) {
+	body := `
+		print("hello")
+		if string.upper("ab") ~= "AB" then error("string.upper broken") end
+		local t = {}
+		table.insert(t, 1)
+		if #t ~= 1 then error("table.insert broken") end
+		if math.floor(1.9) ~= 1 then error("math.floor broken") end
+	`
+	if rv := runSandboxScript(t, body); rv != 0 {
+		t.Errorf("allowed-libs script returned %d, want 0", rv)
+	}
+}
