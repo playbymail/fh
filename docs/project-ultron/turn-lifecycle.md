@@ -166,19 +166,31 @@ Keep it strictly as an emergency escape hatch for a consumer that genuinely
 cannot tolerate the pending mismatch — and even then, prefer teaching that
 consumer the lifecycle over mutating the game.
 
-## The freeze mechanism
+## Enforcement: a single source of process truth
 
-"Frozen" is enforced host-side, not by the engine:
+The lifecycle rules — what is frozen, which transitions are legal from which
+state — are enforced **procedurally, by the commands that control game state**,
+not by any on-disk artifact. There is no `.frozen` sentinel and no permission
+trick: *"frozen" simply means "not the active turn,"* and the GM control
+commands refuse to mutate anything but the active turn, gating every operation
+on its lifecycle precondition:
 
-- The **read-only script host** (`fhc script`, #41/#42) already cannot mutate a
-  game — queries never write — so frozen turns are safe to query today.
-- The future **order-staging** tool must *refuse to write* into a frozen folder.
-  A cheap, scan-safe marker is a sentinel file (e.g. `N/.frozen`) and/or
-  read-only permissions: `fh.load{}`'s scan only counts integer-named
-  subdirectories, so a dotfile sentinel is ignored by enumeration automatically.
+- **stage orders** → requires the active folder, **pending**.
+- **run-this-turn** → requires the active folder, **pending** (refuses an
+  already-resolved folder).
+- **freeze-and-forward** → requires the active folder, **resolved**.
 
-Exact mechanism is a decision for when order-staging lands; the contract
-("frozen ⟹ query-only") is fixed here.
+The active turn is the highest-numbered folder; its pending/resolved state is
+read from `galaxy.dat` (`turn_number == N`?). Any other (frozen) folder rejects
+every mutating operation — it is query-only. Because the rules live in **one
+command layer**, there is a single source of process truth, with no second copy
+to drift out of sync.
+
+These rules are being baked into the **shell scripts first**, to validate the
+process end-to-end, and the *same* rules will then be wired into the **scripting
+engine's GM control commands** — the shell scripts and the eventual engine
+commands are two embodiments of the one rule set. The read-only script host
+(#41/#42) is unaffected: it never mutates, so it can query frozen turns freely.
 
 ## Implications for the scan and `g:turn(id)` (#41 / #42)
 
@@ -194,14 +206,22 @@ Exact mechanism is a decision for when order-staging lands; the contract
   reading the start-of-turn-`N` state, which *is* the pending folder `N`. Listing
   and loading pending folders is the feature.
 
+## Settled
+
+- **Enforcement** — procedural, in the GM control commands (a single source of
+  process truth), not a filesystem marker. Embodied in the shell scripts first
+  to validate the process, then wired into the scripting engine's GM commands
+  (see above).
+- **Tooling path** — the lifecycle verbs are shell scripts now (like genesis);
+  the same rules later move into the scripting engine as GM control commands.
+  The shell scripts are the validation step *before* that wiring.
+
 ## Deferred decisions
 
-1. **Freeze enforcement** — sentinel file vs. filesystem perms vs. host-only
-   convention; settled when order-staging lands.
-2. **`<species-id>` format** under each turn folder — bare number vs. `sp01` vs.
+1. **`<species-id>` format** under each turn folder — bare number vs. `sp01` vs.
    name — must round-trip to `spNN.{ord,rpt}` (carried over from the data-layout
    doc).
-3. **Where `noorders.txt` (the `create orders` template) comes from** in
+2. **Where `noorders.txt` (the `create orders` template) comes from** in
    run-this-turn — bundled with the tool, or per-data-root.
-4. **Tooling shape** — whether freeze-and-forward and run-this-turn are shell
-   scripts (like genesis) or fold into a Go adapter / `fhc` subcommands.
+3. **Exact GM command surface** — the names/shape of the control commands once
+   they move from shell scripts into the scripting engine.
