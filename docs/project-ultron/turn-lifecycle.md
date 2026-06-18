@@ -104,12 +104,17 @@ Player / Ultron-agent **orders go into the new active folder's species subdirs**
 - **Pre:** `N` is the active folder and is resolved (`turn_number == N`).
 - **Post:** `N` frozen (query-only); `N+1` pending, active, accepts orders.
 
-### 3. run-this-turn — resolve the active turn
+### 3. run-this-turn — `tools/run-this-turn.sh <data-root>`
 
 Runs `fhc` to completion in the active **pending** folder `N`, consuming the
 orders staged in `N/<species>/` and advancing `N/galaxy.dat` from `N-1` to `N`.
-For any species without submitted orders, the pipeline's `create orders`
-generates defaults (matching `testdata/cref/generate.sh`). The sequence is the
+It first rebuilds the flat order namespace: it drops any `sp*.ord` carried
+forward by freeze-and-forward (so stale orders can't be mistaken for this turn's),
+copies each `N/<species>/orders` (species id is a bare integer, `1..MAX_SPECIES`)
+to the flat `sp<NN>.ord`, and then `create orders` fills defaults for every
+species that did not submit (using the bundled `tools/noorders.txt` template,
+matching `testdata/cref/generate.sh`). With no staging slots yet, that is a full
+default-order turn — the start-of-game case. The sequence is the
 canonical pipeline — `locations`, `create orders`, `combat`, `pre-departure`,
 `jump`, `production`, `post-arrival`, `finish`, then `report` (and `stats` /
 `turn` for summaries). **`report` — not `finish` — is what writes the
@@ -201,6 +206,8 @@ every lifecycle script sources — no script re-derives the rule:
 - `ultron_turn_state <root> <N>` → `absent` | `pending` | `resolved` |
   `anomalous` (the predicate above; reads `galaxy.dat`'s `turn_number`).
 - `ultron_active_turn <root>` → the highest-numbered (active) turn folder.
+- `ultron_species_dirs <root> <N>` → the integer-named species staging subdirs
+  of turn `N` (the order-staging slots run-this-turn reads).
 - `ultron_require_state <root> <N> <want>` → the transition guard the verbs are
   built from (genesis ⇒ `absent`; run-this-turn ⇒ `pending`; freeze-and-forward
   ⇒ `resolved`).
@@ -242,14 +249,16 @@ unchanged, keeping the single source of truth as the engine surface grows.
   (see above).
 - **Tooling path** — the lifecycle verbs are shell scripts now (like genesis);
   the same rules later move into the scripting engine as GM control commands.
-  The shell scripts are the validation step *before* that wiring.
+  The shell scripts are the validation step *before* that wiring. All three verbs
+  exist: `initialize-ultron-folder.sh`, `freeze-and-forward.sh`,
+  `run-this-turn.sh`.
+- **`<species-id>` format** — a bare integer, `1..MAX_SPECIES`, mapping to the
+  engine's `sp%02d.{ord,rpt}`. Staging slots are `<turn>/<species>/` and the
+  staged order file is `<turn>/<species>/orders`.
+- **`noorders.txt` source** — bundled with the tool (`tools/noorders.txt`),
+  copied into the turn dir by run-this-turn so `create orders` can default-fill.
 
 ## Deferred decisions
 
-1. **`<species-id>` format** under each turn folder — bare number vs. `sp01` vs.
-   name — must round-trip to `spNN.{ord,rpt}` (carried over from the data-layout
-   doc).
-2. **Where `noorders.txt` (the `create orders` template) comes from** in
-   run-this-turn — bundled with the tool, or per-data-root.
-3. **Exact GM command surface** — the names/shape of the control commands once
+1. **Exact GM command surface** — the names/shape of the control commands once
    they move from shell scripts into the scripting engine.

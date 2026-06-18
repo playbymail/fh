@@ -54,6 +54,25 @@ ultron_active_turn() {
 	ultron_turns "$1" | tail -n 1
 }
 
+# ultron_species_dirs <data-root> <N> — echo the integer-named species subdirs
+# of turn N, ascending, one per line (species id is an integer, 1..MAX_SPECIES).
+# These are the per-species staging slots (`<turn>/<species>/`) the order-staging
+# tool fills and run-this-turn reads; mirrors the fh.load{} scan's species pass.
+# Empty output if turn N has no species subdirs.
+ultron_species_dirs() {
+	local root=$1 n=$2 path name
+	[ -d "$root/$n" ] || return 0
+	for path in "$root/$n"/*/; do
+		[ -d "$path" ] || continue # guards the no-match literal glob
+		name=${path%/}
+		name=${name##*/}
+		case "$name" in
+			'' | *[!0-9]*) continue ;; # non-integer name -> not a species
+		esac
+		printf '%s\n' "$name"
+	done | sort -n
+}
+
 # ultron_turn_number <data-root> <N> — echo galaxy.dat's authoritative
 # turn_number for folder N (the count of turns resolved so far). Dies if folder N
 # has no galaxy.dat.
