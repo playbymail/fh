@@ -216,16 +216,35 @@ every lifecycle script sources — no script re-derives the rule:
 through `ultron_turn_state … 0 == absent`, so genesis is a real consumer of the
 shared predicate rather than a parallel re-implementation.
 
-### Forward-looking — one interface, many engines
+### One interface, many engines (implemented)
 
-The lasting home for these operations is a **Go interface the scripting engine
-defines** — query state, stage orders, run a turn, freeze-and-forward, lifecycle
-state (`DoFoo() error`-style methods). **`fhc` implements it now; `fh` implements
-the *same* interface later.** The scripting engine codes against the interface,
-so adding `fh` scripting changes **no scripting-engine code** — it only adds an
-implementation. The shell helper is the validation-phase stand-in for that
-interface: prove the process here, then move the rules behind the interface
-unchanged, keeping the single source of truth as the engine surface grows.
+The lifecycle now lives behind a **Go interface the scripting engine owns**, with
+the shell scripts as the validation oracle:
+
+- [`interface/scripting`](../../interface/scripting) defines the `Engine`
+  interface (`TurnNumber` / `Genesis` / `RunTurn`) and the **engine-agnostic
+  lifecycle** (`TurnStateOf`, `ActiveTurn`, `Genesis`, `FreezeAndForward`,
+  `RunTurn`) — the single source of process truth in Go, ported from
+  `tools/lib/ultron-lifecycle.sh` and tested against a fake engine.
+- [`interface/game`](../../interface/game) is the **fhc adapter**: it implements
+  `Engine` by invoking `fhc` subcommands exactly as the shell scripts do, so it
+  matches the oracle and the C-port engine (`internal/game`) stays frozen.
+- `fh` will implement the **same** `Engine` later in its own terms (its SQLite
+  store); the scripting engine and lifecycle never change.
+
+The verbs are exposed as **GM-scoped Lua verbs**, not CLI subcommands. Under
+`--gm`, `fh.gm()` returns a handle; under `--species`, it returns `nil`, so a
+player script cannot reach them:
+
+```lua
+local gm = fh.gm()                       -- nil under player scope
+gm:genesis{ seed = 12345, species = 5 }  -- create turn 0
+local n = gm:freeze_and_forward()        -- freeze active turn, open pending n
+local r = gm:run_turn()                  -- resolve the active pending turn
+```
+
+The shell scripts (`tools/*.sh`) remain as the validation oracle the Go behavior
+is checked against.
 
 ## Implications for the scan and `g:turn(id)` (#41 / #42)
 
