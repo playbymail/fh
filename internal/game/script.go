@@ -6,17 +6,20 @@ package game
 // later slices can reach the unexported loaders, globals, and structs
 // directly (see docs/project-ultron/fhc-script-design.md).
 //
-// This first slice (#39) only stands up the CLI surface and the GopherLua
-// state: it parses and validates the flags, records the immutable scope, and
-// runs the named script file end-to-end. The stdlib sandbox, the `fh.load{}`
-// scan, turn selection, and the scoped query API are later issues (#40–#45),
-// so nothing here loads a .dat file or touches the PRNG — the subcommand is
-// byte-neutral on the golden trees.
+// The CLI surface + GopherLua state (#39), the stdlib sandbox (#40), and the
+// fh.load{} scan/scope verb (#41) are in place: the host parses and validates
+// the flags, records the immutable scope, sandboxes the interpreter, and
+// exposes fh.load{} (scan the data-root tree, apply scope, return the turn and
+// species lists). Turn selection (g:turn(id)) and the scoped query API are
+// later issues (#42–#45). Nothing here loads a .dat file or touches the PRNG —
+// the scan is directory enumeration only, so the subcommand stays byte-neutral
+// on the golden trees and leaves prngSeed at 0.
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
@@ -33,12 +36,20 @@ const (
 )
 
 // scriptHost carries the parsed, validated invocation state. Later slices hang
-// the scan results and the loaded turn off this struct; for #39 it only holds
-// the scope and the data root.
+// the loaded turn off this struct; #41 caches the scoped scan results (turns,
+// species) so the script handle and #42's g:turn(id) share one source of truth.
 type scriptHost struct {
 	dataRoot  string      // --data-root: dir of turn folders
 	scope     scriptScope // GM or player, set once at invocation
 	speciesID int         // caller's species id; valid only when scope == scopePlayer
+
+	// Scoped scan results, populated by fh.load{} (luaLoad). turns is the full
+	// ascending turn list (unrestricted in both scopes); species is the roster
+	// after scope has been applied (full under GM, {speciesID} under player).
+	// Cached on the host — never on the script-visible handle — so a script
+	// cannot widen its own view, and so #42's g:turn(id) can validate turn ids.
+	turns   []int
+	species []int
 }
 
 // scriptUsage is the one-line usage string, mirroring the CLI shape in the
@@ -184,9 +195,152 @@ func (h *scriptHost) run(scriptPath string) int {
 		mathTbl.RawSetString("randomseed", lua.LNil)
 	}
 
+	// Register the single host verb, fh.load{}. The `fh` table is the script's
+	// only entry into game data; its load field is a Go closure bound to this
+	// host (so the immutable scope rides on h, captured here, not on anything
+	// the script can reach). Installed after the sandbox is built and before the
+	// script runs.
+	fhTbl := L.NewTable()
+	fhTbl.RawSetString("load", L.NewFunction(h.luaLoad))
+	L.SetGlobal("fh", fhTbl)
+
 	if err := L.DoFile(scriptPath); err != nil {
 		fmt.Fprintf(os.Stderr, "fh: script: %v\n", err)
 		return 2
 	}
 	return 0
+}
+
+// scan enumerates the data-root directory tree to discover the game's turns and
+// species roster. It is the host-side half of fh.load{}, kept pure (no Lua, no
+// globals) so it is directly unit-testable.
+//
+// Contract (see docs/project-ultron/fhc-script-design.md, "Load mechanism"):
+// this is directory enumeration ONLY — it reads no .dat and opens no game state
+// (that is #42's g:turn(id)). Integer-named subdirectories of the data root are
+// turns; within each turn dir, integer-named subdirectories are species ids.
+// The species roster is the union across all turn dirs (the roster is stable
+// across turns, but the union is the deterministic, defensive choice).
+// Non-integer-named entries and plain files are ignored; a missing or unreadable
+// data root is an error. Both lists are returned sorted ascending.
+func (h *scriptHost) scan() (turns []int, species []int, err error) {
+	turnEntries, err := os.ReadDir(h.dataRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	speciesSet := make(map[int]bool)
+	for _, te := range turnEntries {
+		if !te.IsDir() {
+			continue
+		}
+		turn, ok := parsePositiveInt(te.Name())
+		if !ok {
+			continue
+		}
+		turns = append(turns, turn)
+
+		// Enumerate species subdirs within this turn dir. An unreadable turn dir
+		// is skipped rather than fatal — a turn folder may legitimately be empty.
+		spEntries, err := os.ReadDir(filepath.Join(h.dataRoot, te.Name()))
+		if err != nil {
+			continue
+		}
+		for _, se := range spEntries {
+			if !se.IsDir() {
+				continue
+			}
+			if id, ok := parsePositiveInt(se.Name()); ok {
+				speciesSet[id] = true
+			}
+		}
+	}
+
+	for id := range speciesSet {
+		species = append(species, id)
+	}
+	sort.Ints(turns)
+	sort.Ints(species)
+	return turns, species, nil
+}
+
+// parsePositiveInt parses a bare directory name as a positive integer id. It
+// rejects anything strconv.Atoi would not accept as a plain integer and any
+// value < 1, so "0", "-1", "3x", and "" are all ignored. (No leading-zero
+// normalization is needed: turn/species dirs are written as bare integers.)
+func parsePositiveInt(name string) (int, bool) {
+	n, err := strconv.Atoi(name)
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
+}
+
+// luaLoad implements fh.load{} — the script's one-shot "open this game" verb.
+// It scans the data root, applies the immutable CLI scope to the species
+// roster, caches the scoped lists on the host, and returns three values to Lua:
+// the game handle, the turn list, and the species list.
+//
+// Scope (see the design doc, "Load mechanism" step 2): GM sees the full roster;
+// player scope filters the roster to {h.speciesID} and errors if that id is
+// absent from the scan (the CLI already checked id >= 1; this is the
+// scan-membership check). The turn list is unrestricted in both scopes.
+//
+// The handle is a fresh Lua table exposing g.turns and g.species (the same
+// lists). The scope itself stays on h, captured by this closure, and is never
+// written onto the handle — a script must not be able to widen its own view.
+// fh.load{} takes one table argument (e.g. {}); this slice accepts and ignores
+// it. Loading no .dat here, the verb leaves prngSeed at 0.
+func (h *scriptHost) luaLoad(L *lua.LState) int {
+	turns, species, err := h.scan()
+	if err != nil {
+		L.RaiseError("fh.load: cannot scan data-root: %v", err)
+		return 0
+	}
+
+	// Apply the immutable scope to the species roster.
+	switch h.scope {
+	case scopePlayer:
+		found := false
+		for _, id := range species {
+			if id == h.speciesID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			L.RaiseError("fh.load: species %d not present in data-root", h.speciesID)
+			return 0
+		}
+		species = []int{h.speciesID}
+	}
+
+	// Cache the scoped lists on the host for #42's g:turn(id) to validate
+	// against. Copy into fresh slices so the returned Lua tables and the host's
+	// cache never alias the scan's working slices.
+	h.turns = append([]int(nil), turns...)
+	h.species = append([]int(nil), species...)
+
+	turnsTbl := intSliceToLuaTable(L, h.turns)
+	speciesTbl := intSliceToLuaTable(L, h.species)
+
+	handle := L.NewTable()
+	handle.RawSetString("turns", turnsTbl)
+	handle.RawSetString("species", speciesTbl)
+
+	L.Push(handle)
+	L.Push(turnsTbl)
+	L.Push(speciesTbl)
+	return 3
+}
+
+// intSliceToLuaTable builds a 1-based, ipairs-iterable Lua array table of
+// numbers from an int slice, preserving order. Returning explicit sequences
+// makes ordering a guarantee, so scripted output stays deterministic.
+func intSliceToLuaTable(L *lua.LState, xs []int) *lua.LTable {
+	tbl := L.NewTable()
+	for _, x := range xs {
+		tbl.Append(lua.LNumber(x))
+	}
+	return tbl
 }
