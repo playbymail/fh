@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -45,56 +44,8 @@ func stageDataRoot(t *testing.T) string {
 	return root
 }
 
-// TestScriptScanGMFullRoster checks the pure scan() helper directly: every
-// integer-named turn dir is returned ascending, and the species roster is the
-// ascending union across all turn dirs. Decoy non-integer/plain entries are
-// ignored.
-func TestScriptScanGMFullRoster(t *testing.T) {
-	ResetState()
-	root := stageDataRoot(t)
-	h := &scriptHost{dataRoot: root, scope: scopeGM}
-
-	turns, species, err := h.scan()
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	if want := []int{1, 2, 3}; !reflect.DeepEqual(turns, want) {
-		t.Errorf("turns = %v, want %v", turns, want)
-	}
-	if want := []int{1, 8}; !reflect.DeepEqual(species, want) {
-		t.Errorf("species = %v, want %v", species, want)
-	}
-}
-
-// TestScriptScanUnionAcrossTurns checks the union behavior: a species present in
-// only one turn dir still appears in the roster, and the result stays ascending.
-func TestScriptScanUnionAcrossTurns(t *testing.T) {
-	ResetState()
-	root := stageDataRoot(t)
-	// Add species 5 to turn 2 only; it must show up in the union.
-	if err := os.MkdirAll(filepath.Join(root, "2", "5"), 0o755); err != nil {
-		t.Fatalf("stage extra species: %v", err)
-	}
-	h := &scriptHost{dataRoot: root, scope: scopeGM}
-
-	_, species, err := h.scan()
-	if err != nil {
-		t.Fatalf("scan: %v", err)
-	}
-	if want := []int{1, 5, 8}; !reflect.DeepEqual(species, want) {
-		t.Errorf("species = %v, want %v (union across turns)", species, want)
-	}
-}
-
-// TestScriptScanMissingDataRoot checks an unreadable/missing data root is an
-// error rather than an empty scan.
-func TestScriptScanMissingDataRoot(t *testing.T) {
-	ResetState()
-	h := &scriptHost{dataRoot: filepath.Join(t.TempDir(), "does-not-exist"), scope: scopeGM}
-	if _, _, err := h.scan(); err == nil {
-		t.Fatalf("scan of missing data-root returned nil error, want error")
-	}
-}
+// The pure scan() helper is unit-tested in interface/scripting (where it now
+// lives); these remain the through-the-CLI integration tests of fh.load{}.
 
 // TestScriptLoadGMScope drives fh.load{} from Lua under --gm: the returned turn
 // and species lists, plus g.turns/g.species on the handle, must match the staged

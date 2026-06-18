@@ -104,10 +104,15 @@ data root points at.
 - **Security model: GM vs. player scope, enforced by the host** (above). `--gm`
   and `--species` mutually exclusive, exactly one required.
 - **`--data-root` is required** and names the dir of turn folders.
-- **Host lives inside package `game`.** New files (`script.go`, `script_api.go`)
-  in `internal/game`, reaching the unexported loaders/globals/structs directly —
-  no new public surface on the frozen package. (`fh`'s later host lives in its own
-  idiomatic package and must satisfy the cross-engine invariant against `fhc`.)
+- **Host originally lived inside package `game`** (#39–#41), reaching the
+  unexported loaders directly. **Superseded:** the host moved to the
+  engine-agnostic `interface/scripting` package, driving the engine through the
+  `Engine` interface; `internal/game/script.go` is now a thin CLI shim that wires
+  the `interface/game` fhc adapter to the host. `fh` will implement the same
+  `Engine` for its own host. See
+  [`turn-lifecycle.md`](turn-lifecycle.md) ("One interface, many engines").
+  (The read-only query slices #42+ that need unexported `.dat` access will add
+  query methods to `Engine`, implemented by the fhc adapter.)
 - **Game-handle API**: `fh.load{}` returns a handle; `g:turn(id)` → turn handle;
   `t:species()`, `t:systems()`.
 - **`fh.load{}` scans + scopes**; turn `.dat` is loaded lazily on `g:turn(id)`.
