@@ -5,6 +5,7 @@ go 1.25.2
 require (
 	github.com/maloquacious/semver v0.4.0
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
+	github.com/yuin/gopher-lua v1.1.2
 	zombiezen.com/go/sqlite v1.4.2
 )
 

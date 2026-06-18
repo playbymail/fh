@@ -76,6 +76,8 @@ func CommandRunner(argv []string) {
 			runCommand(scanCommand(args))
 		} else if arg == "scan-near" {
 			runCommand(scanNearCommand(args))
+		} else if arg == "script" {
+			runCommand(scriptCommand(args))
 		} else if arg == "show" {
 			runCommand(showCommand(args))
 		} else if arg == "stats" {
