@@ -14,11 +14,11 @@ folders** (`0/`, `1/`, `2/`, …). Each folder is a flat engine working director
 `spNN.ord`/`spNN.rpt` and per-species subdirs). Three host-side scripts drive
 the whole game, and every turn moves through the same two-state lifecycle:
 
-| Verb | What it does | Folder it touches |
-|------|--------------|-------------------|
-| **genesis** (`tools/initialize-ultron-folder.sh`) | create `0/`, generate the galaxy + species | makes `0/` |
-| **freeze-and-forward** | freeze turn `N`, copy it to a new `N+1/` | freezes `N`, makes `N+1` |
-| **run-this-turn** | run `fhc` to completion in the active folder, advancing its `galaxy.dat` | resolves the active folder |
+| Verb                                              | What it does                                                             | Folder it touches          |
+|---------------------------------------------------|--------------------------------------------------------------------------|----------------------------|
+| **genesis** (`tools/initialize-ultron-folder.sh`) | create `0/`, generate the galaxy + species                               | makes `0/`                 |
+| **freeze-and-forward**                            | freeze turn `N`, copy it to a new `N+1/`                                 | freezes `N`, makes `N+1`   |
+| **run-this-turn**                                 | run `fhc` to completion in the active folder, advancing its `galaxy.dat` | resolves the active folder |
 
 The load-bearing rule: **`galaxy.dat`'s `turn_number` is the only semantic
 truth; the folder name is an opaque address.** A folder is *resolved* when its
@@ -86,7 +86,7 @@ not of being turn 0.
 - **Pre:** `data-root` exists; no `0/galaxy.dat`.
 - **Post:** `0/` resolved (`turn_number == 0`), active, mutable.
 
-### 2. freeze-and-forward — open the next turn
+### 2. freeze-and-forward — `tools/freeze-and-forward.sh <data-root>`
 
 Takes the current **resolved, active** folder `N`, marks it **frozen**
 (read-only: Ultron may query it but may not stage orders into it), and creates
