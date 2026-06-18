@@ -1,0 +1,207 @@
+# Project Ultron — the turn lifecycle (genesis, freeze-forward, run)
+
+*Design note. Companion to [`fhc-script-data-layout.md`](fhc-script-data-layout.md)
+(this doc resolves its open questions #4 turn-id↔`galaxy.dat` and #5 snapshot-vs-mutate)
+and [`fhc-script-design.md`](fhc-script-design.md) ("Data-root layout", "Load
+mechanism"). No engine code is changed by this document — it describes a
+host-side convention layered on the frozen flat-cwd engine.*
+
+## TL;DR
+
+A game lives under one `--data-root` as a series of **integer-named turn
+folders** (`0/`, `1/`, `2/`, …). Each folder is a flat engine working directory
+(`galaxy.dat`, `stars.dat`, `planets.dat`, `spNN.dat`, plus that turn's
+`spNN.ord`/`spNN.rpt` and per-species subdirs). Three host-side scripts drive
+the whole game, and every turn moves through the same two-state lifecycle:
+
+| Verb | What it does | Folder it touches |
+|------|--------------|-------------------|
+| **genesis** (`tools/initialize-ultron-folder.sh`) | create `0/`, generate the galaxy + species | makes `0/` |
+| **freeze-and-forward** | freeze turn `N`, copy it to a new `N+1/` | freezes `N`, makes `N+1` |
+| **run-this-turn** | run `fhc` to completion in the active folder, advancing its `galaxy.dat` | resolves the active folder |
+
+The load-bearing rule: **`galaxy.dat`'s `turn_number` is the only semantic
+truth; the folder name is an opaque address.** A folder is *resolved* when its
+`turn_number` equals its own name and *pending* (orders open, not yet run) when
+it is exactly one behind.
+
+## Two numbers, one of them authoritative
+
+Every turn folder carries two numbers that usually — but not always — agree:
+
+- **The folder name `N`** — Ultron's address for "the turn whose orders live
+  here." A stable, sortable key. It is *not* a semantic value.
+- **`galaxy.dat`'s `turn_number`** — the engine's count of turns *resolved so
+  far*. This is the number printed into reports (`spNN.rpt.t<turn>`), so it is
+  what `fh` and `fhc` must agree on for byte-parity.
+
+> **Law: never derive a turn's meaning from its folder name. Always read
+> `turn_number` from `galaxy.dat`.** The folder name is filing; the `.dat` is
+> truth. Because both engines read the same `.dat`, they agree by construction —
+> *as long as* the folder name never leaks into any report-affecting logic.
+> (Report filenames already take their `t<turn>` suffix from `galaxy.dat`, not
+> from a directory name — see the data-layout doc.)
+
+## The turn state machine
+
+Grounded in the engine, not folklore:
+
+- A fresh `create galaxy` writes `turn_number = 0` (`internal/game/galaxy.go`;
+  `fhc show turn_number` on a new setup returns `0`).
+- Exactly one pipeline step advances it: `finish` does `galaxy.turn_number++`
+  (`internal/game/finish.go`). One full turn run = `+1`.
+
+So for any folder `N`:
+
+```
+PENDING   turn_number == N-1   orders open, pipeline not yet run
+RESOLVED  turn_number == N      pipeline has run; reports written
+```
+
+The predicate is uniform for the whole game:
+
+> **`resolved(N)  ⟺  turn_number(N) == N`**
+
+Turn `0` is the *only* folder born resolved — it is created by `create`, not by
+resolving orders, so `turn_number(0) == 0` from birth. Every other folder is
+born **pending** (a copy of its predecessor, carrying that predecessor's
+`turn_number`) and becomes resolved when run. This is why the "setup vs first
+turn" seam is not a special case: it is just the first instance of the general
+cadence.
+
+## The three lifecycle verbs
+
+### 1. genesis — `tools/initialize-ultron-folder.sh <data-root> [seed] [species]`
+
+The `data-root` is **not** created (the Ultron folder must already exist); the
+script makes `0/` inside it and runs `create galaxy` →
+`create home-system-templates` → `create species`, leaving `0/galaxy.dat` at
+`turn_number = 0`. It refuses to overwrite an existing `0/galaxy.dat`.
+
+`0/` is the genesis. The GM is free to **tweak the setup** (edit `species.cfg`
+and regenerate, hand-adjust starting state) for as long as `0/` is the active
+folder — i.e. until it is frozen. Immutability is a consequence of *freezing*,
+not of being turn 0.
+
+- **Pre:** `data-root` exists; no `0/galaxy.dat`.
+- **Post:** `0/` resolved (`turn_number == 0`), active, mutable.
+
+### 2. freeze-and-forward — open the next turn
+
+Takes the current **resolved, active** folder `N`, marks it **frozen**
+(read-only: Ultron may query it but may not stage orders into it), and creates
+`N+1/` as a byte copy of `N/`. The copy carries `N`'s `turn_number`, so `N+1/`
+is born **pending** (`turn_number == N == (N+1)-1`).
+
+The genesis→turn-1 case is unremarkable under this rule: `0/galaxy.dat` sits at
+`turn_number 0`, the folder is `0`, so freeze-and-forward freezes `0/` and
+copies it into a new `1/` — which now reads `turn_number 0` in a folder named
+`1`: pending, exactly as intended.
+
+Player / Ultron-agent **orders go into the new active folder's species subdirs**
+(`N+1/<species>/`), never into a frozen folder.
+
+- **Pre:** `N` is the active folder and is resolved (`turn_number == N`).
+- **Post:** `N` frozen (query-only); `N+1` pending, active, accepts orders.
+
+### 3. run-this-turn — resolve the active turn
+
+Runs `fhc` to completion in the active **pending** folder `N`, consuming the
+orders staged in `N/<species>/` and advancing `N/galaxy.dat` from `N-1` to `N`.
+For any species without submitted orders, the pipeline's `create orders`
+generates defaults (matching `testdata/cref/generate.sh`). The sequence is the
+canonical pipeline — `locations`, `create orders`, `combat`, `pre-departure`,
+`jump`, `production`, `post-arrival`, `finish`, then `report` (and `stats` /
+`turn` for summaries). **`report` — not `finish` — is what writes the
+`spNN.rpt.t<turn>` files**, so a run that stops at `finish` advances the number
+but produces no reports; run-this-turn must include `report`.
+
+- **Pre:** `N` is the active folder and is pending (`turn_number == N-1`).
+- **Post:** `N` resolved (`turn_number == N`); reports present in `N/`.
+
+A natural idempotence guard mirrors genesis's refuse-to-overwrite: **refuse to
+run an already-resolved folder** (`turn_number == N`).
+
+## Worked example
+
+```
+genesis data/alpha            ->  0/  turn_number 0   RESOLVED  (active, GM tweaks here)
+freeze-and-forward (N=0)      ->  0/ FROZEN; make 1/  turn_number 0   PENDING (orders -> 1/<sp>/)
+run-this-turn      (N=1)      ->  1/  turn_number 1   RESOLVED  (reports in 1/)
+freeze-and-forward (N=1)      ->  1/ FROZEN; make 2/  turn_number 1   PENDING (orders -> 2/<sp>/)
+run-this-turn      (N=2)      ->  2/  turn_number 2   RESOLVED
+...
+```
+
+The newest folder is always the single **active** one; everything below it is
+frozen history.
+
+## Why this is parity-safe
+
+- The engine reads/writes **bare filenames in its cwd** and never sees the
+  folder name. A folder produced by *copy `N→N+1` then run in place* is therefore
+  byte-identical to one produced by an in-place run in a throwaway dir — which is
+  exactly how `generate.sh` builds the `fhc` reference `turn1/`, `turn2/`, …. So
+  a **resolved** folder `N` matches the `fhc` golden for that turn given the same
+  seed and orders.
+- Parity comparisons are **resolved-to-resolved**. A pending folder is `fh`/Ultron
+  staging with no `fhc` counterpart — don't diff it against anything.
+- Because the folder name never enters report bytes (the `t<turn>` suffix comes
+  from `galaxy.dat`), the transient folder-leads-`.dat` mismatch is invisible to
+  the report surface that defines the cross-engine invariant.
+
+## Why not auto-run a default-order turn instead
+
+An alternative would force `turn_number == folder` everywhere by running a turn
+with default orders immediately after setup. Rejected as the default because it:
+
+- **silently disenfranchises the opening move** — turn 1, the highest-leverage
+  turn, would resolve on autopilot before any player acts;
+- **breaks the uniform lifecycle** — turn 1 would be born resolved while every
+  other turn is born pending; and
+- **doesn't even shrink the tree** — genesis (`0/`) still exists; you've only
+  *added* a phantom resolved turn.
+
+Keep it strictly as an emergency escape hatch for a consumer that genuinely
+cannot tolerate the pending mismatch — and even then, prefer teaching that
+consumer the lifecycle over mutating the game.
+
+## The freeze mechanism
+
+"Frozen" is enforced host-side, not by the engine:
+
+- The **read-only script host** (`fhc script`, #41/#42) already cannot mutate a
+  game — queries never write — so frozen turns are safe to query today.
+- The future **order-staging** tool must *refuse to write* into a frozen folder.
+  A cheap, scan-safe marker is a sentinel file (e.g. `N/.frozen`) and/or
+  read-only permissions: `fh.load{}`'s scan only counts integer-named
+  subdirectories, so a dotfile sentinel is ignored by enumeration automatically.
+
+Exact mechanism is a decision for when order-staging lands; the contract
+("frozen ⟹ query-only") is fixed here.
+
+## Implications for the scan and `g:turn(id)` (#41 / #42)
+
+- **Turn 0 is correctly invisible to the scan.** `fh.load{}`'s positive-integer
+  filter rejects `0`, and genesis is not an Ultron-addressable *turn* — it's the
+  pre-game anchor. The active game surfaces from folder `1` upward. Do **not**
+  make `0` scannable.
+- **`g:turn(N).turn` reports the `.dat` `turn_number`** (authoritative,
+  parity-safe), and the folder id / a `resolved` boolean (`folder == turn_number`)
+  are exposed *separately*. A pending turn's `.turn` lagging its folder by one is
+  correct, not a bug.
+- **Pending turns must be loadable.** An Ultron agent decides turn-`N` orders by
+  reading the start-of-turn-`N` state, which *is* the pending folder `N`. Listing
+  and loading pending folders is the feature.
+
+## Deferred decisions
+
+1. **Freeze enforcement** — sentinel file vs. filesystem perms vs. host-only
+   convention; settled when order-staging lands.
+2. **`<species-id>` format** under each turn folder — bare number vs. `sp01` vs.
+   name — must round-trip to `spNN.{ord,rpt}` (carried over from the data-layout
+   doc).
+3. **Where `noorders.txt` (the `create orders` template) comes from** in
+   run-this-turn — bundled with the tool, or per-data-root.
+4. **Tooling shape** — whether freeze-and-forward and run-this-turn are shell
+   scripts (like genesis) or fold into a Go adapter / `fhc` subcommands.
