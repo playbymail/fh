@@ -31,17 +31,17 @@ func TestScriptCommandRunsTrivialScript(t *testing.T) {
 	}
 }
 
-// TestScriptCommandSpaceSeparatedFlags checks the --opt value form (the design
-// doc writes flags space-separated) parses the same as --opt=value, including
-// a player scope id.
-func TestScriptCommandSpaceSeparatedFlags(t *testing.T) {
+// TestScriptCommandSpaceSeparatedFlagsRejected checks the --opt value form is
+// rejected: fhc uses the --opt=val convention, so --data-root with no '=' has
+// no value and is an error (exit 2) before any Lua runs.
+func TestScriptCommandSpaceSeparatedFlagsRejected(t *testing.T) {
 	ResetState()
 	dataRoot := t.TempDir()
 	script := writeScript(t, `print("hi")`)
 
 	rv := scriptCommand([]string{"script", "--data-root", dataRoot, "--species", "8", script})
-	if rv != 0 {
-		t.Fatalf("scriptCommand returned %d, want 0", rv)
+	if rv != 2 {
+		t.Fatalf("scriptCommand returned %d, want 2 (space-separated flags are not supported)", rv)
 	}
 }
 

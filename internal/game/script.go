@@ -61,40 +61,24 @@ func scriptCommand(args []string) int {
 	for i := 1; i < len(args); i++ {
 		opt, val, hasVal := splitOptVal(args[i])
 
-		// takeVal returns the value for an option that needs one, accepting
-		// both --opt=val and --opt val (the design doc writes the space
-		// form). It advances i past a consumed following argument.
-		takeVal := func() (string, bool) {
-			if hasVal {
-				return val, true
-			}
-			if i+1 < len(args) {
-				i++
-				return args[i], true
-			}
-			return "", false
-		}
-
 		switch {
 		case opt == "--help" || opt == "-h" || opt == "-?":
 			fmt.Fprintln(os.Stderr, scriptUsage)
 			return 2
 		case opt == "--data-root":
-			v, ok := takeVal()
-			if !ok {
+			if !hasVal {
 				fmt.Fprintf(os.Stderr, "fh: script: --data-root requires a directory\n")
 				return 2
 			}
-			dataRoot = v
+			dataRoot = val
 		case opt == "--gm":
 			gm = true
 		case opt == "--species":
-			v, ok := takeVal()
-			if !ok {
+			if !hasVal {
 				fmt.Fprintf(os.Stderr, "fh: script: --species requires an id\n")
 				return 2
 			}
-			species = v
+			species = val
 			haveSpecies = true
 		case len(opt) > 0 && opt[0] == '-':
 			fmt.Fprintf(os.Stderr, "fh: script: unknown option '%s'\n", opt)
