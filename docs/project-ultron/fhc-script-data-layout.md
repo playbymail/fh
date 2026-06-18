@@ -74,27 +74,29 @@ Because **both** `fh` and `fhc` are fed identical flat working dirs by the
 engines start every scenario from byte-identical inputs, so any report divergence
 is unambiguously an `fh` defect.
 
-## What this means for `fhc script` (the first read-only slice)
+## What this means for `fhc script` (the read-only query slice)
 
-The first scripting slice is **read-only** (load a game, load a turn, query
-species/systems — see the planning prompt). Good news: it barely needs the
-adapter. The `.dat` files already sit flat inside `data/<game-id>/<turn-id>/`, so
-the script host can point at that directory and read
-`galaxy/stars/planets/spNN.dat` directly. The `<species-id>/` subdir only holds
-orders/reports, which read-only entity queries don't touch.
+The implemented scripting slice is **read-only**: query the current turn, a
+turn's status, a turn's orders/report, and a species' statistics (see
+[`fhc-script-design.md`](fhc-script-design.md)). It barely needs the adapter. The
+`.dat` files already sit flat inside `<data-root>/<turn-id>/`, so the `fhc` `Game`
+implementation reads them directly — and reads `sp%02d.ord` / the
+`<species-id>/orders` slot for orders and `sp%02d.rpt.t<turn>` for reports.
 
-So for the first slice the open question narrows to: **how does `fhc script`
-point at a turn directory** — `chdir` into it, or parameterize the `.dat` loaders
-to read from an explicit path? Either way, the existing flat-cwd commands must
-stay byte-neutral. The full adapter (orders staging, report harvesting) is only
-needed once scripting drives *runs*, not reads.
+The directory-access question is **resolved**: the `fhc` `Game` `chdir`s into the
+turn dir and reuses the unmodified loaders for the one query that needs full
+state (`SpeciesStats`); the cheaper queries read `galaxy.dat` and the order/report
+files directly. Either way the flat-cwd commands stay byte-neutral. The full
+adapter (orders staging, report harvesting) is only needed once scripting drives
+*runs*, not reads.
 
 ## Open questions for the planning session
 
 1. **Adapter boundary & language.** Go package vs. shell script; whether the
    `script` host calls the adapter or it is a separate orchestration step.
-2. **`script` host directory access.** `chdir` into `data/<game-id>/<turn-id>/`
-   vs. path-parameterized loaders. Keep flat-cwd commands unchanged.
+2. **`script` host directory access.** *Resolved:* the `fhc` `Game` `chdir`s into
+   the turn dir and reuses the unmodified loaders (flat-cwd commands unchanged);
+   the lighter queries read `galaxy.dat`/orders/reports directly.
 3. **`<species-id>` format.** Bare number / `sp01` / name — must round-trip to
    `spNN.{ord,rpt}`.
 4. **`<turn-id>` ↔ `galaxy.dat` turn number.** How the Ultron label maps to the

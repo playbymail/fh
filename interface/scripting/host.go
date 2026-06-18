@@ -1,51 +1,39 @@
 package scripting
 
 import (
-	"os"
-	"path/filepath"
+	"fmt"
 	"sort"
-	"strconv"
 
 	lua "github.com/yuin/gopher-lua"
 )
-
-// Host is the embedded Lua scripting engine: it builds a sandboxed interpreter,
-// applies the immutable GM/player scope, exposes the read-only fh.load{} verb and
-// the GM lifecycle verbs (fh.gm()), and runs a script file. The engine-specific
-// work is delegated to the Engine, so the same Host drives fhc today and fh
-// later. See docs/project-ultron/{fhc-script-design,turn-lifecycle}.md.
 
 // Scope is the immutable access scope chosen at the command line; a script cannot
 // change it, so an adversarial agent cannot widen its own view.
 type Scope int
 
 const (
-	ScopeGM     Scope = iota // --gm: all turns, all species, GM lifecycle verbs
-	ScopePlayer              // --species <id>: all turns, only that species, no GM verbs
+	ScopeGM     Scope = iota // --gm: every species visible
+	ScopePlayer              // --species <id>: only that species visible
 )
 
-// Host carries the validated invocation state and the scoped scan results.
+// Host runs a sandboxed Lua script against a Game under a fixed scope. The Game
+// supplies the data; the Host supplies the sandbox and the access policy.
 type Host struct {
-	eng       Engine
-	dataRoot  string
+	game      Game
 	scope     Scope
 	speciesID int // valid only when scope == ScopePlayer
-
-	// scoped fh.load{} scan results.
-	turns   []int
-	species []int
 }
 
-// NewHost returns a Host bound to an Engine, a data root, and the immutable scope.
-func NewHost(eng Engine, dataRoot string, scope Scope, speciesID int) *Host {
-	return &Host{eng: eng, dataRoot: dataRoot, scope: scope, speciesID: speciesID}
+// NewHost returns a Host bound to a Game and the immutable scope. speciesID is
+// meaningful only for ScopePlayer.
+func NewHost(game Game, scope Scope, speciesID int) *Host {
+	return &Host{game: game, scope: scope, speciesID: speciesID}
 }
 
-// Run builds the sandboxed interpreter, installs the fh verbs, and executes the
-// script file. The sandbox (security layer 1) opens only the pure, deterministic
-// stdlib (base/string/table/math) and removes the code-loading and
-// nondeterminism globals, so a script reaches game data and the engine only
-// through the scoped verbs.
+// Run builds the sandboxed interpreter, installs the fh query verbs, and executes
+// the script file. The sandbox opens only the pure, deterministic stdlib
+// (base/string/table/math) and removes the code-loading and nondeterminism
+// globals, so a script reaches game data only through the scoped verbs.
 func (h *Host) Run(scriptPath string) error {
 	L := lua.NewState(lua.Options{SkipOpenLibs: true})
 	defer L.Close()
@@ -71,179 +59,174 @@ func (h *Host) Run(scriptPath string) error {
 		mathTbl.RawSetString("randomseed", lua.LNil)
 	}
 
-	// The fh table is the script's only entry into game data and control: load{}
-	// (read-only scan) and gm() (the GM lifecycle handle, nil under player scope).
+	// The fh table is the script's only entry into game data: the read-only query
+	// verbs.
 	fhTbl := L.NewTable()
-	fhTbl.RawSetString("load", L.NewFunction(h.luaLoad))
-	fhTbl.RawSetString("gm", L.NewFunction(h.luaGM))
+	fhTbl.RawSetString("current_turn", L.NewFunction(h.luaCurrentTurn))
+	fhTbl.RawSetString("turn_status", L.NewFunction(h.luaTurnStatus))
+	fhTbl.RawSetString("orders", L.NewFunction(h.luaOrders))
+	fhTbl.RawSetString("report", L.NewFunction(h.luaReport))
+	fhTbl.RawSetString("species_stats", L.NewFunction(h.luaSpeciesStats))
 	L.SetGlobal("fh", fhTbl)
 
 	return L.DoFile(scriptPath)
 }
 
-// scan enumerates the data-root: integer-named turn dirs → turn list; integer
-// species subdirs (union across turns) → species roster. Directory enumeration
-// only; reads no game state. Turn 0 is rejected here (it is genesis, not a
-// player-addressable turn) — distinct from the lifecycle's turn scan.
-func (h *Host) scan() (turns []int, species []int, err error) {
-	turnEntries, err := os.ReadDir(h.dataRoot)
-	if err != nil {
-		return nil, nil, err
+// resolveSpecies maps the optional Lua species argument to the species a
+// per-species verb should act on, enforcing the scope. arg == 0 means the
+// argument was omitted.
+//
+//   - Player scope: the species is fixed to the caller's id; an explicit id that
+//     is not the caller's is denied.
+//   - GM scope: a species id is required (there is no implied single species).
+func (h *Host) resolveSpecies(arg int) (int, error) {
+	if h.scope == ScopePlayer {
+		if arg != 0 && arg != h.speciesID {
+			return 0, fmt.Errorf("species %d is not visible in this scope", arg)
+		}
+		return h.speciesID, nil
 	}
-	speciesSet := make(map[int]bool)
-	for _, te := range turnEntries {
-		if !te.IsDir() {
-			continue
-		}
-		turn, ok := parsePositiveInt(te.Name())
-		if !ok {
-			continue
-		}
-		turns = append(turns, turn)
-		spEntries, err := os.ReadDir(filepath.Join(h.dataRoot, te.Name()))
-		if err != nil {
-			continue
-		}
-		for _, se := range spEntries {
-			if !se.IsDir() {
-				continue
-			}
-			if id, ok := parsePositiveInt(se.Name()); ok {
-				speciesSet[id] = true
-			}
-		}
+	if arg == 0 {
+		return 0, fmt.Errorf("a species id is required under --gm")
 	}
-	for id := range speciesSet {
-		species = append(species, id)
-	}
-	sort.Ints(turns)
-	sort.Ints(species)
-	return turns, species, nil
+	return arg, nil
 }
 
-// parsePositiveInt parses a bare directory name as a positive integer id (>= 1).
-func parsePositiveInt(name string) (int, bool) {
-	n, err := strconv.Atoi(name)
-	if err != nil || n < 1 {
-		return 0, false
+// visibleSpecies returns the species ids the caller may see, ascending: the
+// whole roster under GM, just the caller's species under player scope.
+func (h *Host) visibleSpecies() ([]int, error) {
+	if h.scope == ScopePlayer {
+		return []int{h.speciesID}, nil
 	}
-	return n, true
+	ids, err := h.game.SpeciesIDs()
+	if err != nil {
+		return nil, err
+	}
+	out := append([]int(nil), ids...)
+	sort.Ints(out)
+	return out, nil
 }
 
-// luaLoad implements fh.load{}: scan, apply scope, cache the scoped lists, and
-// return handle, turns, species. Under player scope the roster is filtered to
-// the caller's species (error if absent from the scan).
-func (h *Host) luaLoad(L *lua.LState) int {
-	turns, species, err := h.scan()
+// luaCurrentTurn implements fh.current_turn() -> number.
+func (h *Host) luaCurrentTurn(L *lua.LState) int {
+	n, err := h.game.CurrentTurn()
 	if err != nil {
-		L.RaiseError("fh.load: cannot scan data-root: %v", err)
+		L.RaiseError("fh.current_turn: %v", err)
 		return 0
 	}
-	if h.scope == ScopePlayer {
-		found := false
-		for _, id := range species {
-			if id == h.speciesID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			L.RaiseError("fh.load: species %d not present in data-root", h.speciesID)
-			return 0
-		}
-		species = []int{h.speciesID}
-	}
-
-	h.turns = append([]int(nil), turns...)
-	h.species = append([]int(nil), species...)
-
-	turnsTbl := intSliceToLuaTable(L, h.turns)
-	speciesTbl := intSliceToLuaTable(L, h.species)
-	handle := L.NewTable()
-	handle.RawSetString("turns", turnsTbl)
-	handle.RawSetString("species", speciesTbl)
-
-	L.Push(handle)
-	L.Push(turnsTbl)
-	L.Push(speciesTbl)
-	return 3
+	L.Push(lua.LNumber(n))
+	return 1
 }
 
-// luaGM implements fh.gm(): returns the GM lifecycle handle (a table of verbs)
-// under GM scope, or nil under player scope so a player script cannot reach the
-// mutating verbs. The scope rides on the host, never on the handle.
-func (h *Host) luaGM(L *lua.LState) int {
-	if h.scope != ScopeGM {
+// luaTurnStatus implements fh.turn_status(turn) -> "pending" | "resolved".
+func (h *Host) luaTurnStatus(L *lua.LState) int {
+	turn := L.CheckInt(1)
+	status, err := h.game.TurnStatus(turn)
+	if err != nil {
+		L.RaiseError("fh.turn_status: %v", err)
+		return 0
+	}
+	L.Push(lua.LString(status))
+	return 1
+}
+
+// luaOrders implements fh.orders(turn [, species]) -> string | nil. It returns
+// the entire orders file, or nil when no orders were submitted.
+func (h *Host) luaOrders(L *lua.LState) int {
+	turn := L.CheckInt(1)
+	species, err := h.resolveSpecies(L.OptInt(2, 0))
+	if err != nil {
+		L.RaiseError("fh.orders: %v", err)
+		return 0
+	}
+	content, ok, err := h.game.Orders(turn, species)
+	if err != nil {
+		L.RaiseError("fh.orders: %v", err)
+		return 0
+	}
+	if !ok {
 		L.Push(lua.LNil)
 		return 1
 	}
-	gm := L.NewTable()
-	gm.RawSetString("genesis", L.NewFunction(h.luaGenesis))
-	gm.RawSetString("freeze_and_forward", L.NewFunction(h.luaFreezeAndForward))
-	gm.RawSetString("run_turn", L.NewFunction(h.luaRunTurn))
-	L.Push(gm)
+	L.Push(lua.LString(content))
 	return 1
 }
 
-// luaGenesis implements gm:genesis{ seed = N, species = M }. seed defaults to 0
-// (the engine's historical default); species is required (>= 1).
-func (h *Host) luaGenesis(L *lua.LState) int {
-	opts := optTable(L, 2)
-	seed := uint64(0)
-	if n, ok := opts.RawGetString("seed").(lua.LNumber); ok {
-		seed = uint64(n)
-	}
-	species := 0
-	if n, ok := opts.RawGetString("species").(lua.LNumber); ok {
-		species = int(n)
-	}
-	if species < 1 {
-		L.RaiseError("gm:genesis requires species >= 1")
-		return 0
-	}
-	if err := Genesis(h.eng, h.dataRoot, seed, species); err != nil {
-		L.RaiseError("gm:genesis: %v", err)
-		return 0
-	}
-	return 0
-}
-
-// luaFreezeAndForward implements gm:freeze_and_forward(); returns the new turn id.
-func (h *Host) luaFreezeAndForward(L *lua.LState) int {
-	next, err := FreezeAndForward(h.eng, h.dataRoot)
+// luaReport implements fh.report(turn [, species]) -> string. It raises if the
+// turn has not been resolved.
+func (h *Host) luaReport(L *lua.LState) int {
+	turn := L.CheckInt(1)
+	species, err := h.resolveSpecies(L.OptInt(2, 0))
 	if err != nil {
-		L.RaiseError("gm:freeze_and_forward: %v", err)
+		L.RaiseError("fh.report: %v", err)
 		return 0
 	}
-	L.Push(lua.LNumber(next))
-	return 1
-}
-
-// luaRunTurn implements gm:run_turn(); returns the resolved turn id.
-func (h *Host) luaRunTurn(L *lua.LState) int {
-	resolved, err := RunTurn(h.eng, h.dataRoot)
+	content, err := h.game.Report(turn, species)
 	if err != nil {
-		L.RaiseError("gm:run_turn: %v", err)
+		L.RaiseError("fh.report: %v", err)
 		return 0
 	}
-	L.Push(lua.LNumber(resolved))
+	L.Push(lua.LString(content))
 	return 1
 }
 
-// optTable returns the table argument at position n (gm:verb{...} passes the gm
-// handle as arg 1 and the options table as arg 2), or an empty table.
-func optTable(L *lua.LState, n int) *lua.LTable {
-	if t, ok := L.Get(n).(*lua.LTable); ok {
-		return t
+// luaSpeciesStats implements fh.species_stats(turn [, species]). With a species
+// (always, under player scope) it returns one stats table; under GM scope with
+// the species omitted it returns an array of every species' stats, ascending.
+func (h *Host) luaSpeciesStats(L *lua.LState) int {
+	turn := L.CheckInt(1)
+	arg := L.OptInt(2, 0)
+
+	if h.scope == ScopeGM && arg == 0 {
+		ids, err := h.visibleSpecies()
+		if err != nil {
+			L.RaiseError("fh.species_stats: %v", err)
+			return 0
+		}
+		arr := L.NewTable()
+		for _, id := range ids {
+			stats, err := h.game.SpeciesStats(turn, id)
+			if err != nil {
+				L.RaiseError("fh.species_stats: %v", err)
+				return 0
+			}
+			arr.Append(statsToLuaTable(L, stats))
+		}
+		L.Push(arr)
+		return 1
 	}
-	return L.NewTable()
+
+	species, err := h.resolveSpecies(arg)
+	if err != nil {
+		L.RaiseError("fh.species_stats: %v", err)
+		return 0
+	}
+	stats, err := h.game.SpeciesStats(turn, species)
+	if err != nil {
+		L.RaiseError("fh.species_stats: %v", err)
+		return 0
+	}
+	L.Push(statsToLuaTable(L, stats))
+	return 1
 }
 
-// intSliceToLuaTable builds a 1-based, ipairs-iterable Lua array table of numbers.
-func intSliceToLuaTable(L *lua.LState, xs []int) *lua.LTable {
+// statsToLuaTable converts a SpeciesStats into the Lua table the script sees.
+func statsToLuaTable(L *lua.LState, s SpeciesStats) *lua.LTable {
 	tbl := L.NewTable()
-	for _, x := range xs {
-		tbl.Append(lua.LNumber(x))
+	tbl.RawSetString("species", lua.LNumber(s.Species))
+	tbl.RawSetString("name", lua.LString(s.Name))
+	tbl.RawSetString("total_production", lua.LNumber(s.TotalProduction))
+	tbl.RawSetString("num_planets", lua.LNumber(s.NumPlanets))
+	tbl.RawSetString("num_ships", lua.LNumber(s.NumShips))
+	tbl.RawSetString("num_shipyards", lua.LNumber(s.NumShipyards))
+	tbl.RawSetString("offensive_power", lua.LNumber(s.OffensivePower))
+	tbl.RawSetString("defensive_power", lua.LNumber(s.DefensivePower))
+	tbl.RawSetString("econ_units", lua.LNumber(s.EconUnits))
+
+	tech := L.NewTable()
+	for name, level := range s.Tech {
+		tech.RawSetString(name, lua.LNumber(level))
 	}
+	tbl.RawSetString("tech", tech)
 	return tbl
 }

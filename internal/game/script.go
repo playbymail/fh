@@ -1,12 +1,12 @@
 package game
 
 // `fhc script` subcommand — the CLI boundary for the embedded scripting engine.
-// This file is now a thin shim: it parses and validates the flags, fixes the
-// immutable scope, and hands off to the engine-agnostic scripting host in
-// interface/scripting, wired with the fhc adapter (interface/game). The host,
-// the sandbox, the fh.load{} scan, and the GM lifecycle verbs live in those
-// packages so fh can reuse the same scripting engine with its own Engine
-// implementation. See docs/project-ultron/{fhc-script-design,turn-lifecycle}.md.
+// This is a thin shim: it parses and validates the flags, fixes the immutable
+// scope, wires the fhc Game implementation (script_game.go) to the
+// engine-agnostic scripting host (interface/scripting), and runs a script file.
+// The host, sandbox, and read-only query verbs live in interface/scripting so
+// fh can reuse the same scripting engine with its own Game implementation.
+// See docs/project-ultron/fhc-script-design.md.
 
 import (
 	"fmt"
@@ -14,12 +14,10 @@ import (
 	"path/filepath"
 	"strconv"
 
-	gamescript "github.com/playbymail/fh/interface/game"
 	"github.com/playbymail/fh/interface/scripting"
 )
 
-// scriptUsage is the one-line usage string, mirroring the CLI shape in the
-// design doc.
+// scriptUsage is the one-line usage string.
 const scriptUsage = "fh: usage: script --data-root=<dir> (--gm | --species=<id>) <file.lua>"
 
 // scriptCommand is the `script` entry point; args[0] is the command name. It
@@ -99,24 +97,21 @@ func scriptCommand(args []string) int {
 		speciesID = id
 	}
 
-	// Resolve the script path against the original cwd now, before the lifecycle
-	// verbs chdir into turn directories, so turn selection cannot change which
-	// file we run.
+	// Resolve the script and data-root paths against the original cwd now, before
+	// SpeciesStats chdirs into turn directories, so turn selection cannot change
+	// which file we run or where we read game state.
 	absScript, err := filepath.Abs(scriptPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "fh: script: %v\n", err)
 		return 2
 	}
-
-	// The fhc adapter drives the engine by invoking this very fhc binary's
-	// subcommands (so it matches the shell-script oracle and keeps the C-port
-	// engine frozen).
-	fhcPath, err := os.Executable()
+	absRoot, err := filepath.Abs(dataRoot)
 	if err != nil {
-		fhcPath = "fhc"
+		fmt.Fprintf(os.Stderr, "fh: script: %v\n", err)
+		return 2
 	}
 
-	host := scripting.NewHost(gamescript.New(fhcPath), dataRoot, scope, speciesID)
+	host := scripting.NewHost(newFHCGame(absRoot), scope, speciesID)
 	if err := host.Run(absScript); err != nil {
 		fmt.Fprintf(os.Stderr, "fh: script: %v\n", err)
 		return 2

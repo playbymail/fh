@@ -216,49 +216,44 @@ every lifecycle script sources — no script re-derives the rule:
 through `ultron_turn_state … 0 == absent`, so genesis is a real consumer of the
 shared predicate rather than a parallel re-implementation.
 
-### One interface, many engines (implemented)
+### Where the lifecycle lives today (shell scripts)
 
-The lifecycle now lives behind a **Go interface the scripting engine owns**, with
-the shell scripts as the validation oracle:
+The lifecycle is implemented in the **shell scripts** (`tools/*.sh`), which
+source the one shared predicate in
+[`tools/lib/ultron-lifecycle.sh`](../../tools/lib/ultron-lifecycle.sh). They are
+the single source of process truth and the validation oracle.
 
-- [`interface/scripting`](../../interface/scripting) defines the `Engine`
-  interface (`TurnNumber` / `Genesis` / `RunTurn`) and the **engine-agnostic
-  lifecycle** (`TurnStateOf`, `ActiveTurn`, `Genesis`, `FreezeAndForward`,
-  `RunTurn`) — the single source of process truth in Go, ported from
-  `tools/lib/ultron-lifecycle.sh` and tested against a fake engine.
-- [`interface/game`](../../interface/game) is the **fhc adapter**: it implements
-  `Engine` by invoking `fhc` subcommands exactly as the shell scripts do, so it
-  matches the oracle and the C-port engine (`internal/game`) stays frozen.
-- `fh` will implement the **same** `Engine` later in its own terms (its SQLite
-  store); the scripting engine and lifecycle never change.
+> **History.** An earlier slice (#52) ported the lifecycle into Go behind a
+> mutating `Engine` interface (`TurnNumber`/`Genesis`/`RunTurn`) in
+> `interface/scripting`, with an `interface/game` adapter that drove `fhc` by
+> `os/exec`, exposed as `fh.gm()` Lua verbs. That direction was removed in #53:
+> it conflated the read-only scripting host with game *mutation*, and shelling
+> out to the `fhc` binary was the wrong implementation. The scripting engine is
+> now **read-only** — it queries lifecycle state (`fh.current_turn()`,
+> `fh.turn_status(n)`) but never drives the lifecycle. See
+> [`fhc-script-design.md`](fhc-script-design.md).
 
-The verbs are exposed as **GM-scoped Lua verbs**, not CLI subcommands. Under
-`--gm`, `fh.gm()` returns a handle; under `--species`, it returns `nil`, so a
-player script cannot reach them:
+If the lifecycle verbs (genesis / freeze-and-forward / run-turn) later move out
+of the shell scripts and into the engines as GM control commands, they will be a
+**separate, mutating** surface from the read-only `script` query host — not the
+same interface.
 
-```lua
-local gm = fh.gm()                       -- nil under player scope
-gm:genesis{ seed = 12345, species = 5 }  -- create turn 0
-local n = gm:freeze_and_forward()        -- freeze active turn, open pending n
-local r = gm:run_turn()                  -- resolve the active pending turn
-```
+## Implications for the read-only query host
 
-The shell scripts (`tools/*.sh`) remain as the validation oracle the Go behavior
-is checked against.
+The read-only `script` host (see [`fhc-script-design.md`](fhc-script-design.md))
+consumes this lifecycle but never drives it:
 
-## Implications for the scan and `g:turn(id)` (#41 / #42)
-
-- **Turn 0 is correctly invisible to the scan.** `fh.load{}`'s positive-integer
-  filter rejects `0`, and genesis is not an Ultron-addressable *turn* — it's the
-  pre-game anchor. The active game surfaces from folder `1` upward. Do **not**
-  make `0` scannable.
-- **`g:turn(N).turn` reports the `.dat` `turn_number`** (authoritative,
-  parity-safe), and the folder id / a `resolved` boolean (`folder == turn_number`)
-  are exposed *separately*. A pending turn's `.turn` lagging its folder by one is
-  correct, not a bug.
-- **Pending turns must be loadable.** An Ultron agent decides turn-`N` orders by
-  reading the start-of-turn-`N` state, which *is* the pending folder `N`. Listing
-  and loading pending folders is the feature.
+- **Turn 0 is invisible to the query host.** The positive-integer turn filter
+  rejects `0`; genesis is not an Ultron-addressable *turn* — it's the pre-game
+  anchor. The active game surfaces from folder `1` upward. `fh.current_turn()`
+  returns the highest such folder.
+- **`fh.turn_status(N)` reads the `.dat` `turn_number`** (authoritative,
+  parity-safe): `resolved` when `turn_number == N`, otherwise `pending`. A pending
+  turn's `turn_number` lagging its folder by one is correct, not a bug.
+- **Pending turns must be queryable.** An Ultron agent decides turn-`N` orders by
+  reading the start-of-turn-`N` state, which *is* the pending folder `N`. Querying
+  pending folders (status, staged orders, species stats) is the feature; only
+  `fh.report(N)` requires `N` to be resolved.
 
 ## Settled
 
