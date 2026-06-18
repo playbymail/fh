@@ -1,8 +1,10 @@
 package game
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -15,6 +17,143 @@ func writeScript(t *testing.T, body string) string {
 		t.Fatalf("write script: %v", err)
 	}
 	return path
+}
+
+// stageDataRoot stages a fake data-root for the fh.load{} scan tests: turn dirs
+// 1/2/3, each containing bare-integer species subdirs (1 and 8). It creates
+// directories ONLY — no .dat — because the scan is pure directory enumeration.
+// A couple of decoy entries (a non-integer dir and a plain file) verify they
+// are ignored. Returns the data-root path.
+func stageDataRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, turn := range []int{1, 2, 3} {
+		for _, sp := range []int{1, 8} {
+			if err := os.MkdirAll(filepath.Join(root, fmt.Sprint(turn), fmt.Sprint(sp)), 0o755); err != nil {
+				t.Fatalf("stage data-root: %v", err)
+			}
+		}
+	}
+	// Decoys: a non-integer turn dir and a plain file at the root must be
+	// ignored by the scan.
+	if err := os.MkdirAll(filepath.Join(root, "notaturn"), 0o755); err != nil {
+		t.Fatalf("stage decoy dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "galaxy.dat"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("stage decoy file: %v", err)
+	}
+	return root
+}
+
+// TestScriptScanGMFullRoster checks the pure scan() helper directly: every
+// integer-named turn dir is returned ascending, and the species roster is the
+// ascending union across all turn dirs. Decoy non-integer/plain entries are
+// ignored.
+func TestScriptScanGMFullRoster(t *testing.T) {
+	ResetState()
+	root := stageDataRoot(t)
+	h := &scriptHost{dataRoot: root, scope: scopeGM}
+
+	turns, species, err := h.scan()
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if want := []int{1, 2, 3}; !reflect.DeepEqual(turns, want) {
+		t.Errorf("turns = %v, want %v", turns, want)
+	}
+	if want := []int{1, 8}; !reflect.DeepEqual(species, want) {
+		t.Errorf("species = %v, want %v", species, want)
+	}
+}
+
+// TestScriptScanUnionAcrossTurns checks the union behavior: a species present in
+// only one turn dir still appears in the roster, and the result stays ascending.
+func TestScriptScanUnionAcrossTurns(t *testing.T) {
+	ResetState()
+	root := stageDataRoot(t)
+	// Add species 5 to turn 2 only; it must show up in the union.
+	if err := os.MkdirAll(filepath.Join(root, "2", "5"), 0o755); err != nil {
+		t.Fatalf("stage extra species: %v", err)
+	}
+	h := &scriptHost{dataRoot: root, scope: scopeGM}
+
+	_, species, err := h.scan()
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if want := []int{1, 5, 8}; !reflect.DeepEqual(species, want) {
+		t.Errorf("species = %v, want %v (union across turns)", species, want)
+	}
+}
+
+// TestScriptScanMissingDataRoot checks an unreadable/missing data root is an
+// error rather than an empty scan.
+func TestScriptScanMissingDataRoot(t *testing.T) {
+	ResetState()
+	h := &scriptHost{dataRoot: filepath.Join(t.TempDir(), "does-not-exist"), scope: scopeGM}
+	if _, _, err := h.scan(); err == nil {
+		t.Fatalf("scan of missing data-root returned nil error, want error")
+	}
+}
+
+// TestScriptLoadGMScope drives fh.load{} from Lua under --gm: the returned turn
+// and species lists, plus g.turns/g.species on the handle, must match the staged
+// roster. The script error()s on any mismatch, so exit 0 means every assertion
+// passed.
+func TestScriptLoadGMScope(t *testing.T) {
+	ResetState()
+	root := stageDataRoot(t)
+	script := writeScript(t, `
+		local g, turns, species = fh.load{}
+		if #turns ~= 3 then error("want 3 turns, got " .. #turns) end
+		if turns[1] ~= 1 or turns[2] ~= 2 or turns[3] ~= 3 then error("turns not ascending 1,2,3") end
+		if #species ~= 2 then error("want 2 species, got " .. #species) end
+		if species[1] ~= 1 or species[2] ~= 8 then error("species not 1,8") end
+		if #g.turns ~= 3 then error("g.turns wrong length") end
+		if g.turns[3] ~= 3 then error("g.turns[3] ~= 3") end
+		if #g.species ~= 2 or g.species[2] ~= 8 then error("g.species wrong") end
+	`)
+
+	rv := scriptCommand([]string{"script", "--data-root=" + root, "--gm", script})
+	if rv != 0 {
+		t.Fatalf("gm load script returned %d, want 0", rv)
+	}
+	// Determinism guard: this slice loads no .dat, so the PRNG must be untouched.
+	if prngSeed != 0 {
+		t.Errorf("prngSeed = %d after load, want 0 (no .dat loaded)", prngSeed)
+	}
+}
+
+// TestScriptLoadPlayerScope drives fh.load{} under --species=8: the species list
+// is filtered to {8}, but the turn list stays unrestricted.
+func TestScriptLoadPlayerScope(t *testing.T) {
+	ResetState()
+	root := stageDataRoot(t)
+	script := writeScript(t, `
+		local g, turns, species = fh.load{}
+		if #turns ~= 3 then error("want 3 turns, got " .. #turns) end
+		if #species ~= 1 then error("want 1 species, got " .. #species) end
+		if species[1] ~= 8 then error("want species 8, got " .. species[1]) end
+		if #g.species ~= 1 or g.species[1] ~= 8 then error("g.species not {8}") end
+	`)
+
+	rv := scriptCommand([]string{"script", "--data-root=" + root, "--species=8", script})
+	if rv != 0 {
+		t.Fatalf("player load script returned %d, want 0", rv)
+	}
+}
+
+// TestScriptLoadUnknownSpecies checks player scope for a species absent from the
+// scan: fh.load{} raises a Lua error, which propagates through DoFile to exit 2.
+func TestScriptLoadUnknownSpecies(t *testing.T) {
+	ResetState()
+	root := stageDataRoot(t)
+	script := writeScript(t, `local g = fh.load{}`)
+
+	rv := scriptCommand([]string{"script", "--data-root=" + root, "--species=99", script})
+	if rv != 2 {
+		t.Fatalf("load with absent species returned %d, want 2", rv)
+	}
 }
 
 // TestScriptCommandRunsTrivialScript checks the GopherLua host wires up end to
