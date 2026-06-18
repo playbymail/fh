@@ -135,12 +135,54 @@ func scriptCommand(args []string) int {
 	return host.run(absScript)
 }
 
-// run builds a GopherLua state and executes the script file. Later slices
-// install the stdlib sandbox and the `fh` query API on this state; for now it
-// is a stock interpreter so a trivial print("hello") script runs end-to-end.
+// run builds a sandboxed GopherLua state and executes the script file. Later
+// slices install the `fh` query API on this state; the scoped query API is the
+// only path a script has to game data.
+//
+// Security layer 1 (#40): an untrusted Ultron agent script must not reach the
+// filesystem or any source of nondeterminism. We open the interpreter with
+// SkipOpenLibs so nothing is available by default, then open only the pure,
+// deterministic libraries (base, string, table, math). Leaving package, io,
+// os, debug, coroutine, and channel unopened is what makes os, io, debug, and
+// require absent. We then nil out the base globals that load code (dofile,
+// load, loadfile, loadstring) and the two nondeterministic math entry points
+// (math.random, math.randomseed). The determinism invariant — same data in,
+// same report out — is what lets fh be validated against fhc, so the script
+// layer must not introduce a hidden RNG. See
+// docs/project-ultron/fhc-script-design.md ("Security model", "Sandboxing").
 func (h *scriptHost) run(scriptPath string) int {
-	L := lua.NewState()
+	L := lua.NewState(lua.Options{SkipOpenLibs: true})
 	defer L.Close()
+
+	// Open only the pure, deterministic stdlib pieces, via the loader-function
+	// call pattern (push the open func + lib name, then Call(1, 0)).
+	for _, lib := range []struct {
+		name string
+		open lua.LGFunction
+	}{
+		{lua.BaseLibName, lua.OpenBase},
+		{lua.StringLibName, lua.OpenString},
+		{lua.TabLibName, lua.OpenTable},
+		{lua.MathLibName, lua.OpenMath},
+	} {
+		L.Push(L.NewFunction(lib.open))
+		L.Push(lua.LString(lib.name))
+		L.Call(1, 0)
+	}
+
+	// OpenBase registers code-loading globals; remove them so a script cannot
+	// pull in arbitrary code or files. require/package are never opened, but
+	// nil them belt-and-suspenders.
+	for _, g := range []string{"dofile", "load", "loadfile", "loadstring", "require", "package"} {
+		L.SetGlobal(g, lua.LNil)
+	}
+
+	// Neutralize the nondeterministic math entry points; everything else in
+	// math is a pure function.
+	if mathTbl, ok := L.GetGlobal(lua.MathLibName).(*lua.LTable); ok {
+		mathTbl.RawSetString("random", lua.LNil)
+		mathTbl.RawSetString("randomseed", lua.LNil)
+	}
 
 	if err := L.DoFile(scriptPath); err != nil {
 		fmt.Fprintf(os.Stderr, "fh: script: %v\n", err)
