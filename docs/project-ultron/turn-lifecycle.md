@@ -192,6 +192,34 @@ engine's GM control commands** — the shell scripts and the eventual engine
 commands are two embodiments of the one rule set. The read-only script host
 (#41/#42) is unaffected: it never mutates, so it can query frozen turns freely.
 
+### One shared predicate (shell phase)
+
+The shell embodiment factors the predicate into a single sourced helper,
+[`tools/lib/ultron-lifecycle.sh`](../../tools/lib/ultron-lifecycle.sh), which
+every lifecycle script sources — no script re-derives the rule:
+
+- `ultron_turn_state <root> <N>` → `absent` | `pending` | `resolved` |
+  `anomalous` (the predicate above; reads `galaxy.dat`'s `turn_number`).
+- `ultron_active_turn <root>` → the highest-numbered (active) turn folder.
+- `ultron_require_state <root> <N> <want>` → the transition guard the verbs are
+  built from (genesis ⇒ `absent`; run-this-turn ⇒ `pending`; freeze-and-forward
+  ⇒ `resolved`).
+
+`initialize-ultron-folder.sh` already routes its refuse-to-overwrite check
+through `ultron_turn_state … 0 == absent`, so genesis is a real consumer of the
+shared predicate rather than a parallel re-implementation.
+
+### Forward-looking — one interface, many engines
+
+The lasting home for these operations is a **Go interface the scripting engine
+defines** — query state, stage orders, run a turn, freeze-and-forward, lifecycle
+state (`DoFoo() error`-style methods). **`fhc` implements it now; `fh` implements
+the *same* interface later.** The scripting engine codes against the interface,
+so adding `fh` scripting changes **no scripting-engine code** — it only adds an
+implementation. The shell helper is the validation-phase stand-in for that
+interface: prove the process here, then move the rules behind the interface
+unchanged, keeping the single source of truth as the engine surface grows.
+
 ## Implications for the scan and `g:turn(id)` (#41 / #42)
 
 - **Turn 0 is correctly invisible to the scan.** `fh.load{}`'s positive-integer
